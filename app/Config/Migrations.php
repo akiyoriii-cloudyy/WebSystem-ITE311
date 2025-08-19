@@ -34,17 +34,9 @@ class Migrations extends BaseConfig
      * Timestamp Format
      * --------------------------------------------------------------------------
      *
-     * This is the format that will be used when creating new migrations
-     * using the CLI command:
-     *   > php spark make:migration
-     *
-     * NOTE: if you set an unsupported format, migration runner will not find
-     *       your migration files.
-     *
      * Supported formats:
-     * - YmdHis_
-     * - Y-m-d-His_
-     * - Y_m_d_His_
+     * - YmdHis_   (e.g., 20250814203055_CreateUsersTable.php)
+     * - Y_m_d_His_ (e.g., 2025_08_14_203055_CreateUsersTable.php)
      */
-    public string $timestampFormat = 'Y-m-d-His_';
+    public string $timestampFormat = 'YmdHis_'; 
 }
