@@ -24,7 +24,7 @@ class Filters extends BaseFilters
      * [filter_name => classname]
      * or [filter_name => [classname1, classname2, ...]]
      */
-    public array $aliases = [
+   public array $aliases = [
         'csrf'          => CSRF::class,
         'toolbar'       => DebugToolbar::class,
         'honeypot'      => Honeypot::class,
@@ -34,6 +34,10 @@ class Filters extends BaseFilters
         'forcehttps'    => ForceHTTPS::class,
         'pagecache'     => PageCache::class,
         'performance'   => PerformanceMetrics::class,
+
+        // Custom filters
+        'auth'          => \App\Filters\AuthFilter::class, // login required
+        'role'          => \App\Filters\RoleFilter::class, // role-based access
     ];
 
     /**
@@ -49,37 +53,32 @@ class Filters extends BaseFilters
      *
      * @var array{before: list<string>, after: list<string>}
      */
-    public array $required = [
+     public array $required = [
         'before' => [
-            'forcehttps', // Force Global Secure Requests
-            'pagecache',  // Web Page Caching
+            'forcehttps',
+            'pagecache',
         ],
         'after' => [
-            'pagecache',   // Web Page Caching
-            'performance', // Performance Metrics
-            'toolbar',     // Debug Toolbar
+            'pagecache',
+            'performance',
+            'toolbar',
         ],
     ];
-
     /**
      * List of filter aliases that are always
      * applied before and after every request.
      *
      * @var array<string, array<string, array<string, string>>>|array<string, list<string>>
      */
-public array $globals = [
-    'before' => [
-        'csrf',
-    // 'honeypot',
-            // 'csrf',
-            // 'invalidchars',
-    ],
-    'after' => [
-        'toolbar',
-          // 'honeypot',
-            // 'secureheaders',
-    ],
-];
+  public array $globals = [
+        'before' => [
+            'csrf',
+            // 'auth', // optional: enable globally if needed
+        ],
+        'after' => [
+            'toolbar',
+        ],
+    ];
 
 
     /**

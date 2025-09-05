@@ -55,28 +55,43 @@
 
     <!-- Content -->
     <div class="content">
-        <h2 class="fw-bold">Welcome, <?= esc(session('user_name')) ?> 🎉</h2>
-        <p class="text-muted">Your role: <strong><?= esc(session('user_role')) ?></strong></p>
+        <h2 class="fw-bold">Welcome, <?= esc($user_name) ?> 🎉</h2>
+        <p class="text-muted">Your role: <strong><?= esc($user_role) ?></strong></p>
 
         <div class="row mt-4">
-            <div class="col-md-4">
-                <div class="card p-3">
-                    <h5>Total Users</h5>
-                    <p class="fs-4 fw-bold">7</p>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="card p-3">
-                    <h5>Projects</h5>
-                    <p class="fs-4 fw-bold">5</p>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="card p-3">
-                    <h5>Notifications</h5>
-                    <p class="fs-4 fw-bold">9</p>
-                </div>
-            </div>
+
+            <?php if($user_role === 'admin'): ?>
+                <?php $cards = [
+                    ['title' => 'Total Users', 'value' => $total_users],
+                    ['title' => 'Projects', 'value' => $total_projects],
+                    ['title' => 'Notifications', 'value' => $total_notifications],
+                ]; ?>
+            <?php elseif($user_role === 'instructor'): ?>
+                <?php $cards = [
+                    ['title' => 'My Courses', 'value' => $my_courses],
+                    ['title' => 'My Students', 'value' => $my_students],
+                    ['title' => 'Notifications', 'value' => $my_notifications],
+                ]; ?>
+            <?php elseif($user_role === 'student'): ?>
+                <?php $cards = [
+                    ['title' => 'My Courses', 'value' => $my_courses],
+                    ['title' => 'My Assignments', 'value' => $my_assignments],
+                    ['title' => 'Notifications', 'value' => $my_notifications],
+                ]; ?>
+            <?php endif; ?>
+
+            <!-- Render Cards -->
+            <?php if(isset($cards) && !empty($cards)): ?>
+                <?php foreach($cards as $card): ?>
+                    <div class="col-md-4 mb-3">
+                        <div class="card p-3">
+                            <h5><?= esc($card['title']) ?></h5>
+                            <p class="fs-4 fw-bold"><?= esc($card['value']) ?></p>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            <?php endif; ?>
+
         </div>
     </div>
 </body>

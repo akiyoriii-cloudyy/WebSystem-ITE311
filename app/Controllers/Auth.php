@@ -14,9 +14,10 @@ class Auth extends BaseController
         $this->users = new UserModel();
     }
 
+    // Show login form
     public function login()
     {
-        // If already logged in, go straight to dashboard
+        // Redirect already logged-in users
         if (session()->get('logged_in')) {
             return redirect()->to('/dashboard');
         }
@@ -24,10 +25,18 @@ class Auth extends BaseController
         return view('auth/login');
     }
 
+    // Handle login form submission
     public function attemptLogin()
     {
+        helper(['form']);
+
         $email    = trim($this->request->getPost('email'));
         $password = (string) $this->request->getPost('password');
+
+        // Basic validation
+        if (empty($email) || empty($password)) {
+            return redirect()->back()->with('error', 'Email and password are required.')->withInput();
+        }
 
         $user = $this->users->where('email', $email)->first();
 
@@ -35,7 +44,7 @@ class Auth extends BaseController
             return redirect()->back()->with('error', 'Invalid email or password.')->withInput();
         }
 
-        // Save minimal session
+        // Save session
         session()->set([
             'user_id'   => $user['id'],
             'user_name' => $user['name'],
@@ -43,30 +52,47 @@ class Auth extends BaseController
             'logged_in' => true,
         ]);
 
-        return redirect()->to('/dashboard');
+        // Role-based redirect
+        return redirect()->to('/dashboard'); // Dashboard controller will handle role-specific view
     }
 
+    // Show registration form
     public function register()
     {
         return view('auth/register');
     }
 
+    // Handle registration form submission
     public function attemptRegister()
     {
-        $data = $this->request->getPost([
-            'name', 'email', 'password', 'role'
-        ]);
+        helper(['form']);
 
-        // Hash password before save
-        $data['password'] = password_hash((string)$data['password'], PASSWORD_DEFAULT);
+        $rules = [
+            'name'     => 'required|min_length[3]|max_length[255]',
+            'email'    => 'required|valid_email|is_unique[users.email]',
+            'password' => 'required|min_length[6]',
+            'role'     => 'required|in_list[admin,instructor,student]',
+        ];
+
+        if (!$this->validate($rules)) {
+            return redirect()->back()->withInput()->with('errors', $this->validator->getErrors());
+        }
+
+        $data = [
+            'name'     => $this->request->getPost('name'),
+            'email'    => $this->request->getPost('email'),
+            'password' => $this->request->getPost('password'), // hashed automatically in UserModel
+            'role'     => $this->request->getPost('role'),
+        ];
 
         if (!$this->users->save($data)) {
             return redirect()->back()->with('errors', $this->users->errors())->withInput();
         }
 
-        return redirect()->to('/login')->with('success', 'Account created. Please log in.');
+        return redirect()->to('/login')->with('success', 'Account created successfully. You can now login.');
     }
 
+    // Logout
     public function logout()
     {
         session()->destroy();
