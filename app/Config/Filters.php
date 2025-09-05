@@ -67,17 +67,20 @@ class Filters extends BaseFilters
      *
      * @var array<string, array<string, array<string, string>>>|array<string, list<string>>
      */
-    public array $globals = [
-        'before' => [
-            // 'honeypot',
+public array $globals = [
+    'before' => [
+        'csrf',
+    // 'honeypot',
             // 'csrf',
             // 'invalidchars',
-        ],
-        'after' => [
-            // 'honeypot',
+    ],
+    'after' => [
+        'toolbar',
+          // 'honeypot',
             // 'secureheaders',
-        ],
-    ];
+    ],
+];
+
 
     /**
      * List of filter aliases that works on a
