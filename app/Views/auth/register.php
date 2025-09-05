@@ -25,6 +25,7 @@
         <h3 class="mb-2 text-center fw-bold">Create Account</h3>
         <p class="text-muted text-center mb-4">Join us today and get started</p>
 
+        <!-- Display validation errors -->
         <?php if ($errors = session('errors')): ?>
             <div class="alert alert-danger">
                 <ul class="mb-0">
@@ -37,26 +38,40 @@
 
         <form method="post" action="<?= site_url('register') ?>">
             <?= csrf_field() ?>
+
+            <!-- Name field -->
             <div class="mb-3">
                 <label class="form-label">Name</label>
-                <input name="name" class="form-control" value="<?= old('name') ?>" required>
+                <input name="name" type="text" class="form-control" value="<?= old('name') ?>" required>
             </div>
+
+            <!-- Email field -->
             <div class="mb-3">
                 <label class="form-label">Email</label>
                 <input name="email" type="email" class="form-control" value="<?= old('email') ?>" required>
             </div>
+
+            <!-- Password field -->
             <div class="mb-3">
                 <label class="form-label">Password</label>
                 <input name="password" type="password" class="form-control" required>
             </div>
+
+            <!-- Role selection -->
             <div class="mb-3">
                 <label class="form-label">Role</label>
                 <select name="role" class="form-select" required>
-                    <option value="user" <?= old('role')==='user'?'selected':'' ?>>User</option>
-                    <option value="admin" <?= old('role')==='admin'?'selected':'' ?>>Admin</option>
+                    <option value="">-- Select Role --</option>
+                    <option value="admin" <?= old('role')==='admin' ? 'selected' : '' ?>>Admin</option>
+                    <option value="instructor" <?= old('role')==='instructor' ? 'selected' : '' ?>>Instructor</option>
+                    <option value="student" <?= old('role')==='student' ? 'selected' : '' ?>>Student</option>
                 </select>
             </div>
+
+            <!-- Submit button -->
             <button class="btn btn-primary w-100" type="submit">Register</button>
+
+            <!-- Login link -->
             <div class="text-center mt-3">
                 <a href="<?= site_url('login') ?>">Already have an account? Login</a>
             </div>

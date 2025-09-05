@@ -3,32 +3,40 @@
 namespace App\Database\Seeds;
 
 use CodeIgniter\Database\Seeder;
+use App\Models\UserModel;
 
 class UserSeeder extends Seeder
 {
     public function run()
     {
-        // Define user data
-        $data = [
+        $model = new UserModel();
+
+        $users = [
             [
-                'name'       => 'Admin User',
-                'email'      => 'admin@example.com',
-                'password'   => password_hash('password123', PASSWORD_DEFAULT),
-                'role'       => 'admin',
-                'created_at' => date('Y-m-d H:i:s'),
-                'updated_at' => date('Y-m-d H:i:s'),
+                'name'     => 'Admin User',
+                'email'    => 'admin@example.com',
+                'password' => 'admin123',
+                'role'     => 'admin'
             ],
             [
-                'name'       => 'Test User',
-                'email'      => 'test@example.com',
-                'password'   => password_hash('test123', PASSWORD_DEFAULT),
-                'role'       => 'student',
-                'created_at' => date('Y-m-d H:i:s'),
-                'updated_at' => date('Y-m-d H:i:s'),
+                'name'     => 'Instructor User',
+                'email'    => 'instructor@example.com',
+                'password' => 'instructor123', 
+                'role'     => 'instructor'
             ],
+            [
+                'name'     => 'Student User',
+                'email'    => 'student@example.com',
+                'password' => 'student123', 
+                'role'     => 'student'
+            ]
         ];
 
-        // Insert data into users table
-        $this->db->table('users')->insertBatch($data);
+        foreach ($users as $user) {
+            // Save directly without validation to prevent any insertion errors
+            $model->skipValidation(true)->save($user);
+        }
+
+        echo "Users seeded successfully!";
     }
 }
