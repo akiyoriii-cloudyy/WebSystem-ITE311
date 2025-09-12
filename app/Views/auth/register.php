@@ -18,6 +18,15 @@
             box-shadow: 0 8px 20px rgba(0,0,0,0.1);
         }
     </style>
+    <script>
+        // Check if user is already logged in
+        window.onload = function() {
+            const loggedIn = <?= json_encode(session()->get('logged_in')) ?>;
+            if (loggedIn) {
+                window.location.href = '<?= site_url('dashboard') ?>';  // Redirect to dashboard or template
+            }
+        };
+    </script>
 </head>
 <body>
 <div class="container" style="max-width: 480px;">
@@ -63,8 +72,7 @@
                 <select name="role" class="form-select" required>
                     <option value="">-- Select Role --</option>
                     <option value="admin" <?= old('role')==='admin' ? 'selected' : '' ?>>Admin</option>
-                    <option value="instructor" <?= old('role')==='instructor' ? 'selected' : '' ?>>Instructor</option>
-                    <option value="student" <?= old('role')==='student' ? 'selected' : '' ?>>Student</option>
+                    <option value="user" <?= old('role')==='user' ? 'selected' : '' ?>>User</option>
                 </select>
             </div>
 

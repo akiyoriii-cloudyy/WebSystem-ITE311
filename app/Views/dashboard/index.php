@@ -66,16 +66,9 @@
                     ['title' => 'Projects', 'value' => $total_projects],
                     ['title' => 'Notifications', 'value' => $total_notifications],
                 ]; ?>
-            <?php elseif($user_role === 'instructor'): ?>
+            <?php elseif($user_role === 'user'): ?>
                 <?php $cards = [
                     ['title' => 'My Courses', 'value' => $my_courses],
-                    ['title' => 'My Students', 'value' => $my_students],
-                    ['title' => 'Notifications', 'value' => $my_notifications],
-                ]; ?>
-            <?php elseif($user_role === 'student'): ?>
-                <?php $cards = [
-                    ['title' => 'My Courses', 'value' => $my_courses],
-                    ['title' => 'My Assignments', 'value' => $my_assignments],
                     ['title' => 'Notifications', 'value' => $my_notifications],
                 ]; ?>
             <?php endif; ?>
