@@ -16,19 +16,13 @@ class UserSeeder extends Seeder
                 'name'     => 'Admin User',
                 'email'    => 'admin@example.com',
                 'password' => 'admin123',
-                'role'     => 'admin'
+                'role'     => 'admin'  // Admin role
             ],
             [
-                'name'     => 'Instructor User',
-                'email'    => 'instructor@example.com',
-                'password' => 'instructor123', 
-                'role'     => 'instructor'
-            ],
-            [
-                'name'     => 'Student User',
-                'email'    => 'student@example.com',
-                'password' => 'student123', 
-                'role'     => 'student'
+                'name'     => 'Regular User',
+                'email'    => 'user@example.com',
+                'password' => 'user123',  // Regular user role
+                'role'     => 'user'      // User role
             ]
         ];
 

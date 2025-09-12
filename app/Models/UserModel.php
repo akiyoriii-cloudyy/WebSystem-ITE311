@@ -21,12 +21,12 @@ class UserModel extends Model
     protected $createdField  = 'created_at';
     protected $updatedField  = 'updated_at';
 
-    // Updated validation rules for all roles
+    // Updated validation rules for 'admin' and 'user' roles only
     protected $validationRules = [
         'name'     => 'required|min_length[2]',
         'email'    => 'required|valid_email|is_unique[users.email,id,{id}]',
         'password' => 'required|min_length[6]',
-        'role'     => 'required|in_list[admin,instructor,student]',
+        'role'     => 'required|in_list[admin,user]',  // Updated to only allow 'admin' and 'user' roles
     ];
 
     // Automatically hash password before insert/update
@@ -35,7 +35,7 @@ class UserModel extends Model
 
     protected function hashPassword(array $data)
     {
-        if(isset($data['data']['password'])) {
+        if (isset($data['data']['password'])) {
             $data['data']['password'] = password_hash($data['data']['password'], PASSWORD_DEFAULT);
         }
         return $data;

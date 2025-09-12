@@ -22,10 +22,9 @@ $routes->get('logout', 'Auth::logout');
 
 // Dashboard routes (role-based)
 $routes->group('dashboard', ['filter' => 'auth'], function($routes) {
-    $routes->get('/', 'Dashboard::index');
+    $routes->get('/', 'Dashboard::index');  // General dashboard page
 
-    // Role-specific dashboards
-    $routes->get('admin', 'Dashboard::admin', ['filter' => 'role:admin']);
-    $routes->get('instructor', 'Dashboard::instructor', ['filter' => 'role:instructor']);
-    $routes->get('student', 'Dashboard::student', ['filter' => 'role:student']);
+    // Role-specific dashboards (admin and user roles only)
+    $routes->get('admin', 'Dashboard::admin', ['filter' => 'role:admin']);  // Admin dashboard
+    $routes->get('user', 'Dashboard::user', ['filter' => 'role:user']);  // User dashboard
 });

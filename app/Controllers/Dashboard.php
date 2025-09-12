@@ -21,10 +21,8 @@ class Dashboard extends BaseController
             'total_users' => $role === 'admin' ? $userModel->countAll() : 0,
             'total_projects' => $role === 'admin' ? 5 : 0,
             'total_notifications' => $role === 'admin' ? 9 : 0,
-            'my_courses' => $role !== 'admin' ? ($role === 'instructor' ? 3 : 2) : 0,
-            'my_students' => $role === 'instructor' ? 20 : 0,
-            'my_assignments' => $role === 'student' ? 6 : 0,
-            'my_notifications' => $role !== 'admin' ? ($role === 'instructor' ? 4 : 3) : 0,
+            'my_courses' => $role === 'user' ? 3 : 0,  // Only user can have courses
+            'my_notifications' => $role === 'user' ? 4 : 0,  // User-specific notifications
         ];
 
         // Load view from dashboard/index.php

@@ -52,7 +52,7 @@ class Auth extends BaseController
             'logged_in' => true,
         ]);
 
-        // Role-based redirect
+        // Role-based redirect (admin or user)
         return redirect()->to('/dashboard'); // Dashboard controller will handle role-specific view
     }
 
@@ -71,7 +71,7 @@ class Auth extends BaseController
             'name'     => 'required|min_length[3]|max_length[255]',
             'email'    => 'required|valid_email|is_unique[users.email]',
             'password' => 'required|min_length[6]',
-            'role'     => 'required|in_list[admin,instructor,student]',
+            'role'     => 'required|in_list[admin,user]', // Allow only admin and user roles
         ];
 
         if (!$this->validate($rules)) {
