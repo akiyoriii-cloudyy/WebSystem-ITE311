@@ -15,16 +15,8 @@ use CodeIgniter\Filters\SecureHeaders;
 
 class Filters extends BaseFilters
 {
-    /**
-     * Configures aliases for Filter classes to
-     * make reading things nicer and simpler.
-     *
-     * @var array<string, class-string|list<class-string>>
-     *
-     * [filter_name => classname]
-     * or [filter_name => [classname1, classname2, ...]]
-     */
-   public array $aliases = [
+    // Aliases make filters easier to use in routes or globally
+    public array $aliases = [
         'csrf'          => CSRF::class,
         'toolbar'       => DebugToolbar::class,
         'honeypot'      => Honeypot::class,
@@ -34,76 +26,29 @@ class Filters extends BaseFilters
         'forcehttps'    => ForceHTTPS::class,
         'pagecache'     => PageCache::class,
         'performance'   => PerformanceMetrics::class,
-
-        // Custom filters
-        'auth'          => \App\Filters\AuthFilter::class, // login required
-        'role'          => \App\Filters\RoleFilter::class, // role-based access
     ];
 
-    /**
-     * List of special required filters.
-     *
-     * The filters listed here are special. They are applied before and after
-     * other kinds of filters, and always applied even if a route does not exist.
-     *
-     * Filters set by default provide framework functionality. If removed,
-     * those functions will no longer work.
-     *
-     * @see https://codeigniter.com/user_guide/incoming/filters.html#provided-filters
-     *
-     * @var array{before: list<string>, after: list<string>}
-     */
-     public array $required = [
-        'before' => [
-            'forcehttps',
-            'pagecache',
-        ],
-        'after' => [
-            'pagecache',
-            'performance',
-            'toolbar',
-        ],
+    // Required filters are always applied (before or after)
+    public array $required = [
+        'before' => [],
+        'after'  => [],
     ];
-    /**
-     * List of filter aliases that are always
-     * applied before and after every request.
-     *
-     * @var array<string, array<string, array<string, string>>>|array<string, list<string>>
-     */
-  public array $globals = [
+
+    // Global filters (apply to every request)
+    public array $globals = [
         'before' => [
+            // enable CSRF protection on all POST requests
             'csrf',
-            // 'auth', // optional: enable globally if needed
         ],
         'after' => [
+            // show debug toolbar only in development
             'toolbar',
         ],
     ];
 
-
-    /**
-     * List of filter aliases that works on a
-     * particular HTTP method (GET, POST, etc.).
-     *
-     * Example:
-     * 'POST' => ['foo', 'bar']
-     *
-     * If you use this, you should disable auto-routing because auto-routing
-     * permits any HTTP method to access a controller. Accessing the controller
-     * with a method you don't expect could bypass the filter.
-     *
-     * @var array<string, list<string>>
-     */
+    // Filters by HTTP method (optional)
     public array $methods = [];
 
-    /**
-     * List of filter aliases that should run on any
-     * before or after URI patterns.
-     *
-     * Example:
-     * 'isLoggedIn' => ['before' => ['account/*', 'profiles/*']]
-     *
-     * @var array<string, array<string, list<string>>>
-     */
+    // Filters by URI pattern (optional)
     public array $filters = [];
 }

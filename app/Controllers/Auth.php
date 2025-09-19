@@ -2,49 +2,45 @@
 
 namespace App\Controllers;
 
-use App\Models\UserModel;
+use CodeIgniter\Controller;
+use Config\Database;
 
 class Auth extends BaseController
 {
     protected $helpers = ['form', 'url'];
-    private UserModel $users;
+    protected $db;
 
     public function __construct()
     {
-        $this->users = new UserModel();
+        $this->db = Database::connect();
     }
 
     // Show login form
     public function login()
     {
-        // Redirect already logged-in users
-        if (session()->get('logged_in')) {
-            return redirect()->to('/dashboard');
-        }
-
+        if (session()->get('logged_in')) return redirect()->to('/dashboard');
         return view('auth/login');
     }
 
-    // Handle login form submission
-    public function attemptLogin()
+    // Handle login
+    public function loginPost()
     {
-        helper(['form']);
-
-        $email    = trim($this->request->getPost('email'));
-        $password = (string) $this->request->getPost('password');
-
-        // Basic validation
-        if (empty($email) || empty($password)) {
-            return redirect()->back()->with('error', 'Email and password are required.')->withInput();
+        if (!$this->validate([
+            'email'    => 'required|valid_email',
+            'password' => 'required|min_length[6]'
+        ])) {
+            return redirect()->back()->withInput()->with('errors', $this->validator->getErrors());
         }
 
-        $user = $this->users->where('email', $email)->first();
+        $user = $this->db->table('users')
+            ->where('email', $this->request->getPost('email'))
+            ->get()
+            ->getRowArray();
 
-        if (!$user || !password_verify($password, $user['password'])) {
-            return redirect()->back()->with('error', 'Invalid email or password.')->withInput();
+        if (!$user || !password_verify($this->request->getPost('password'), $user['password'])) {
+            return redirect()->back()->withInput()->with('error', 'Invalid email or password.');
         }
 
-        // Save session
         session()->set([
             'user_id'   => $user['id'],
             'user_name' => $user['name'],
@@ -52,42 +48,34 @@ class Auth extends BaseController
             'logged_in' => true,
         ]);
 
-        // Role-based redirect (admin or user)
-        return redirect()->to('/dashboard'); // Dashboard controller will handle role-specific view
+        return redirect()->to('/dashboard');
     }
 
-    // Show registration form
+    // Show register form
     public function register()
     {
         return view('auth/register');
     }
 
-    // Handle registration form submission
-    public function attemptRegister()
+    // Handle register
+    public function registerPost()
     {
-        helper(['form']);
-
-        $rules = [
-            'name'     => 'required|min_length[3]|max_length[255]',
-            'email'    => 'required|valid_email|is_unique[users.email]',
-            'password' => 'required|min_length[6]',
-            'role'     => 'required|in_list[admin,user]', // Allow only admin and user roles
-        ];
-
-        if (!$this->validate($rules)) {
+        if (!$this->validate([
+            'name'              => 'required|min_length[3]|max_length[255]',
+            'email'             => 'required|valid_email|is_unique[users.email]',
+            'password'          => 'required|min_length[6]',
+            'confirm_password'  => 'required|matches[password]',
+            'role'              => 'required|in_list[admin,user]',
+        ])) {
             return redirect()->back()->withInput()->with('errors', $this->validator->getErrors());
         }
 
-        $data = [
+        $this->db->table('users')->insert([
             'name'     => $this->request->getPost('name'),
             'email'    => $this->request->getPost('email'),
-            'password' => $this->request->getPost('password'), // hashed automatically in UserModel
+            'password' => password_hash($this->request->getPost('password'), PASSWORD_DEFAULT),
             'role'     => $this->request->getPost('role'),
-        ];
-
-        if (!$this->users->save($data)) {
-            return redirect()->back()->with('errors', $this->users->errors())->withInput();
-        }
+        ]);
 
         return redirect()->to('/login')->with('success', 'Account created successfully. You can now login.');
     }
@@ -96,6 +84,38 @@ class Auth extends BaseController
     public function logout()
     {
         session()->destroy();
-        return redirect()->to('/login');
+        return redirect()->to('/login')->with('success', 'You have been logged out.');
+    }
+
+    // Dashboard
+    public function dashboard()
+    {
+        if (!session()->get('logged_in')) return redirect()->to('/login')->with('error', 'Please login first.');
+
+        $userRole = session()->get('user_role');
+        $userId = session()->get('user_id');
+
+        $data = [
+            'user_name' => session()->get('user_name'),
+            'user_role' => $userRole,
+            'total_users' => 0,
+            'total_projects' => 0,
+            'total_notifications' => 0,
+            'my_courses' => 0,
+            'my_notifications' => 0,
+        ];
+
+        $builder = $this->db;
+
+        if ($userRole === 'admin') {
+            if ($builder->tableExists('users')) $data['total_users'] = $builder->table('users')->countAllResults();
+            if ($builder->tableExists('projects')) $data['total_projects'] = $builder->table('projects')->countAllResults();
+            if ($builder->tableExists('notifications')) $data['total_notifications'] = $builder->table('notifications')->countAllResults();
+        } elseif ($userRole === 'user') {
+            if ($builder->tableExists('courses')) $data['my_courses'] = $builder->table('courses')->where('user_id', $userId)->countAllResults();
+            if ($builder->tableExists('notifications')) $data['my_notifications'] = $builder->table('notifications')->where('user_id', $userId)->countAllResults();
+        }
+
+        return view('dashboard/index', $data);
     }
 }
