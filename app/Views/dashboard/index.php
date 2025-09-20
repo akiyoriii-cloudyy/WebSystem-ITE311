@@ -32,6 +32,12 @@
     <h2 class="fw-bold">Welcome, <?= esc($user_name) ?> 🎉</h2>
     <p class="text-muted">Your role: <strong><?= esc($user_role) ?></strong></p>
 
+    <!-- ADDED: Display success message if redirected from registration -->
+    <?php if(session()->has('success')): ?>
+        <?= session()->get('user_name') ?>
+        <div class="alert alert-success"><?= esc(session('success')) ?></div>
+    <?php endif; ?>
+
     <div class="row mt-4">
         <?php 
         $cards = [];
