@@ -43,6 +43,7 @@
             <div class="alert alert-danger"><?= esc(session('error')) ?></div>
         <?php endif; ?>
 
+        <!-- CHANGED: Action now points to the same URL (login) for both GET and POST -->
         <form method="post" action="<?= site_url('login') ?>">
             <?= csrf_field() ?>
 
