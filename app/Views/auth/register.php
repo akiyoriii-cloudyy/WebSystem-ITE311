@@ -43,7 +43,6 @@
             <div class="alert alert-danger"><?= esc(session('error')) ?></div>
         <?php endif; ?>
 
-        <!-- CHANGED: Action now points to the same URL (register) for both GET and POST -->
         <form method="post" action="<?= site_url('register') ?>">
             <?= csrf_field() ?>
 
@@ -72,7 +71,8 @@
                 <select name="role" class="form-select" required>
                     <option value="">-- Select Role --</option>
                     <option value="admin" <?= old('role')==='admin' ? 'selected' : '' ?>>Admin</option>
-                    <option value="user" <?= old('role')==='user' ? 'selected' : '' ?>>User</option>
+                    <option value="teacher" <?= old('role')==='teacher' ? 'selected' : '' ?>>Teacher</option>
+                    <option value="student" <?= old('role')==='student' ? 'selected' : '' ?>>Student</option>
                 </select>
             </div>
 
