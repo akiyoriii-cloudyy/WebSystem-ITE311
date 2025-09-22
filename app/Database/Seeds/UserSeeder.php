@@ -15,19 +15,24 @@ class UserSeeder extends Seeder
             [
                 'name'     => 'Admin User',
                 'email'    => 'admin@example.com',
-                'password' => 'admin123',
-                'role'     => 'admin'  // Admin role
+                'password' => password_hash('admin123', PASSWORD_DEFAULT), // ✅ hashed password
+                'role'     => 'admin'
             ],
             [
-                'name'     => 'Regular User',
-                'email'    => 'user@example.com',
-                'password' => 'user123',  // Regular user role
-                'role'     => 'user'      // User role
-            ]
+                'name'     => 'Teacher User',
+                'email'    => 'teacher@example.com',
+                'password' => password_hash('teacher123', PASSWORD_DEFAULT), // ✅ hashed password
+                'role'     => 'teacher'
+            ],
+            [
+                'name'     => 'Student User',
+                'email'    => 'student@example.com',
+                'password' => password_hash('student123', PASSWORD_DEFAULT), // ✅ hashed password
+                'role'     => 'student'
+            ],
         ];
 
         foreach ($users as $user) {
-            // Save directly without validation to prevent any insertion errors
             $model->skipValidation(true)->save($user);
         }
 

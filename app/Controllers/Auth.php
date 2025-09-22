@@ -2,27 +2,23 @@
 
 namespace App\Controllers;
 
-use CodeIgniter\Controller;
 use App\Models\UserModel;
 
 class Auth extends BaseController
 {
     protected $helpers = ['form', 'url'];
 
-    // Handle login (GET: show form, POST: process login)
+    // ✅ Login
     public function login()
     {
-        // Check if already logged in
         if (session()->get('logged_in')) {
             return redirect()->to('/dashboard');
         }
 
-        // Handle GET request - show login form
         if ($this->request->getMethod() === 'GET') {
             return view('auth/login');
         }
 
-        // Handle POST request - process login
         if ($this->request->getMethod() === 'POST') {
             if (!$this->validate([
                 'email'    => 'required|valid_email',
@@ -38,7 +34,8 @@ class Auth extends BaseController
                 return redirect()->back()->withInput()->with('error', 'Invalid email or password.');
             }
 
-            session()->set([  
+            // ✅ Store session data
+            session()->set([
                 'user_id'   => $user['id'],
                 'user_name' => $user['name'],
                 'user_role' => $user['role'],
@@ -49,22 +46,20 @@ class Auth extends BaseController
         }
     }
 
-    // Handle register (GET: show form, POST: process registration)
+    // ✅ Register
     public function register()
     {
-        // Handle GET request - show register form
         if ($this->request->getMethod() === 'GET') {
             return view('auth/register');
         }
 
-        // Handle POST request - process registration
         if ($this->request->getMethod() === 'POST') {
             if (!$this->validate([
                 'name'              => 'required|min_length[3]|max_length[255]',
                 'email'             => 'required|valid_email|is_unique[users.email]',
                 'password'          => 'required|min_length[6]',
                 'confirm_password'  => 'required|matches[password]',
-                'role'              => 'required|in_list[admin,user]',
+                'role'              => 'required|in_list[admin,teacher,student]',
             ])) {
                 return redirect()->back()->withInput()->with('errors', $this->validator->getErrors());
             }
@@ -81,14 +76,14 @@ class Auth extends BaseController
         }
     }
 
-    // Logout
+    // ✅ Logout
     public function logout()
     {
         session()->destroy();
         return redirect()->to('/auth/login')->with('success', 'You have been logged out.');
     }
 
-    // Dashboard
+    // ✅ Dashboard (Role-based without filters)
     public function dashboard()
     {
         if (!session()->get('logged_in')) {
@@ -96,24 +91,29 @@ class Auth extends BaseController
         }
 
         $userRole = session()->get('user_role');
-        $userId = session()->get('user_id');
-
-        $data = [
-            'user_name' => session()->get('user_name'),
-            'user_role' => $userRole,
-            'total_users' => 0,
-            'total_projects' => 0,
-            'total_notifications' => 0,
-            'my_courses' => 0,
-            'my_notifications' => 0,
-        ];
+        $userId   = session()->get('user_id');
 
         $userModel = new UserModel();
         $stats = $userModel->getDashboardStats($userRole, $userId);
-        
-        // Merge the stats into data array
+
+        // Common data for all dashboards
+        $data = [
+            'title'         => ucfirst($userRole) . ' Dashboard',
+            'dashboard_url' => 'dashboard', // used in header sidebar
+            'user_name'     => session()->get('user_name'),
+            'user_role'     => $userRole,
+        ];
+
+        // Merge role-specific stats
         $data = array_merge($data, $stats);
 
-        return view('dashboard/index', $data);
+        // ✅ Load different dashboards based on role
+        if ($userRole === 'admin') {
+            return view('dashboard/admin', $data);
+        } elseif ($userRole === 'teacher') {
+            return view('dashboard/teacher', $data);
+        } else {
+            return view('dashboard/student', $data);
+        }
     }
 }
