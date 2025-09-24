@@ -20,6 +20,7 @@ class Auth extends BaseController
         }
 
         if ($this->request->getMethod() === 'POST') {
+            // Validate inputs
             if (!$this->validate([
                 'email'    => 'required|valid_email',
                 'password' => 'required|min_length[6]'
@@ -28,10 +29,24 @@ class Auth extends BaseController
             }
 
             $userModel = new UserModel();
-            $user = $userModel->findUserByEmail($this->request->getPost('email'));
+            $email     = $this->request->getPost('email');
+            $password  = $this->request->getPost('password');
 
-            if (!$user || !password_verify($this->request->getPost('password'), $user['password'])) {
-                return redirect()->back()->withInput()->with('error', 'Invalid email or password.');
+            // ✅ Find user by email
+            $user = $userModel->findUserByEmail($email);
+
+            if (!$user) {
+                return redirect()->back()->withInput()->with('error', 'Email not found.');
+            }
+
+            // ✅ Verify password hash
+            if (!password_verify($password, $user['password'])) {
+                return redirect()->back()->withInput()->with('error', 'Incorrect password.');
+            }
+
+            // ✅ Optional: check if account is active
+            if (isset($user['status']) && $user['status'] !== 'active') {
+                return redirect()->back()->with('error', 'Your account is not active. Please contact admin.');
             }
 
             // ✅ Store session data
@@ -42,7 +57,8 @@ class Auth extends BaseController
                 'logged_in' => true,
             ]);
 
-            return redirect()->to('/dashboard');
+            // 🔑 No duplicate welcome here, just short message
+            return redirect()->to('/dashboard')->with('success', 'You have successfully logged in.');
         }
     }
 
@@ -83,7 +99,7 @@ class Auth extends BaseController
         return redirect()->to('/auth/login')->with('success', 'You have been logged out.');
     }
 
-    // ✅ Dashboard (Role-based without filters)
+    // ✅ Unified Dashboard (all roles in one view)
     public function dashboard()
     {
         if (!session()->get('logged_in')) {
@@ -96,10 +112,10 @@ class Auth extends BaseController
         $userModel = new UserModel();
         $stats = $userModel->getDashboardStats($userRole, $userId);
 
-        // Common data for all dashboards
+        // Common data
         $data = [
             'title'         => ucfirst($userRole) . ' Dashboard',
-            'dashboard_url' => 'dashboard', // used in header sidebar
+            'dashboard_url' => 'dashboard', // for sidebar links
             'user_name'     => session()->get('user_name'),
             'user_role'     => $userRole,
         ];
@@ -107,13 +123,7 @@ class Auth extends BaseController
         // Merge role-specific stats
         $data = array_merge($data, $stats);
 
-        // ✅ Load different dashboards based on role
-        if ($userRole === 'admin') {
-            return view('dashboard/admin', $data);
-        } elseif ($userRole === 'teacher') {
-            return view('dashboard/teacher', $data);
-        } else {
-            return view('dashboard/student', $data);
-        }
+        // ✅ Single merged dashboard view
+        return view('auth/dashboard', $data);
     }
 }
