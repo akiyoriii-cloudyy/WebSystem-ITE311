@@ -8,7 +8,7 @@ class Auth extends BaseController
 {
     protected $helpers = ['form', 'url'];
 
-    // ✅ Login
+    // ✅ LOGIN
     public function login()
     {
         if (session()->get('logged_in')) {
@@ -30,8 +30,7 @@ class Auth extends BaseController
             $userModel = new UserModel();
             $email     = $this->request->getPost('email');
             $password  = $this->request->getPost('password');
-
-            $user = $userModel->findUserByEmail($email);
+            $user      = $userModel->findUserByEmail($email);
 
             if (!$user) {
                 return redirect()->back()->withInput()->with('error', 'Email not found.');
@@ -48,7 +47,7 @@ class Auth extends BaseController
             session()->set([
                 'user_id'   => $user['id'],
                 'user_name' => $user['name'],
-                'user_role' => $user['role'],
+                'user_role' => strtolower($user['role']),
                 'logged_in' => true,
             ]);
 
@@ -56,7 +55,7 @@ class Auth extends BaseController
         }
     }
 
-    // ✅ Register
+    // ✅ REGISTER
     public function register()
     {
         if ($this->request->getMethod() === 'GET') {
@@ -75,16 +74,14 @@ class Auth extends BaseController
             }
 
             $userModel = new UserModel();
-
             $result = $userModel->createAccount([
                 'name'     => $this->request->getPost('name'),
                 'email'    => $this->request->getPost('email'),
                 'password' => $this->request->getPost('password'),
-                'role'     => $this->request->getPost('role'),
+                'role'     => strtolower($this->request->getPost('role')),
             ]);
 
             if (is_array($result)) {
-                // ❌ Validation failed inside model
                 return redirect()->back()->withInput()->with('errors', $result);
             }
 
@@ -92,110 +89,113 @@ class Auth extends BaseController
         }
     }
 
-    // ✅ Logout
+    // ✅ LOGOUT
     public function logout()
     {
         session()->destroy();
         return redirect()->to('/auth/login')->with('success', 'You have been logged out.');
     }
 
-    // 🔍 Helper: check if a table exists
-    private function tableExists($tableName): bool
-    {
-        $db = \Config\Database::connect();
-        return $db->query("SHOW TABLES LIKE " . $db->escape($tableName))->getNumRows() > 0;
-    }
-
-    // 🔍 Helper: check if column exists in table
-    private function columnExists($tableName, $columnName): bool
-    {
-        $db = \Config\Database::connect();
-        if (!$this->tableExists($tableName)) {
-            return false;
-        }
-        $fields = $db->getFieldNames($tableName);
-        return in_array($columnName, $fields);
-    }
-
-    // ✅ Dashboard
+    // ✅ DASHBOARD (Handles AJAX + Page Display)
     public function dashboard()
     {
-        if (!session()->get('logged_in')) {
+        $session = session();
+
+        if (!$session->get('logged_in')) {
             return redirect()->to('/auth/login')->with('error', 'Please login first.');
         }
 
-        $userRole = session()->get('user_role');
-        $userId   = session()->get('user_id');
-
-        $userModel = new UserModel();
-        $stats     = $userModel->getDashboardStats($userRole, $userId);
-
         $db        = \Config\Database::connect();
-        $users     = [];
-        $courses   = [];
+        $userModel = new UserModel();
+
+        $userId   = $session->get('user_id');
+        $userRole = strtolower($session->get('user_role'));
+        $user     = $userModel->find($userId);
+
+        // ✅ Handle AJAX Role Update
+        if ($this->request->getMethod() === 'post' && $this->request->isAJAX()) {
+            $updateId = $this->request->getPost('id');
+            $newRole  = strtolower($this->request->getPost('role'));
+
+            if ($userRole !== 'admin') {
+                return $this->response->setJSON(['status' => 'error', 'message' => 'Unauthorized access.']);
+            }
+
+            $validRoles = ['teacher', 'student'];
+            if (!empty($updateId) && in_array($newRole, $validRoles)) {
+                $updated = $userModel->update($updateId, ['role' => $newRole]);
+                if ($updated) {
+                    return $this->response->setJSON(['status' => 'success', 'message' => 'Role updated successfully.']);
+                } else {
+                    return $this->response->setJSON(['status' => 'error', 'message' => 'Failed to update role.']);
+                }
+            }
+
+            return $this->response->setJSON(['status' => 'error', 'message' => 'Invalid input.']);
+        }
+
+        // ✅ Normal Dashboard View
+        $users = [];
+        $courses = [];
         $deadlines = [];
+        $enrolledCourses = [];
 
         try {
-            // ✅ Admin
+            // ADMIN
             if ($userRole === 'admin') {
                 $users = $userModel->select('id, name, email, role')->findAll();
-
-                if ($this->tableExists('courses')) {
+                if ($db->query("SHOW TABLES LIKE 'courses'")->getNumRows() > 0) {
                     $courses = $db->table('courses')->get()->getResultArray();
                 }
             }
-            // ✅ Teacher
+
+            // TEACHER
             elseif ($userRole === 'teacher') {
-                if ($this->tableExists('courses')) {
-                    if ($this->columnExists('courses', 'teacher_id')) {
-                        $courses = $db->table('courses')
-                                      ->where('teacher_id', $userId)
-                                      ->get()
-                                      ->getResultArray();
-                    } elseif ($this->columnExists('courses', 'created_by')) {
-                        $courses = $db->table('courses')
-                                      ->where('created_by', $userId)
-                                      ->get()
-                                      ->getResultArray();
-                    } else {
-                        $courses = $db->table('courses')->get()->getResultArray();
-                    }
+                if ($db->query("SHOW TABLES LIKE 'courses'")->getNumRows() > 0) {
+                    $courses = $db->table('courses')
+                        ->where('instructor_id', $userId)
+                        ->get()
+                        ->getResultArray();
                 }
             }
-            // ✅ Student
+
+            // STUDENT
             elseif ($userRole === 'student') {
-                if ($this->tableExists('enrollments') && $this->tableExists('courses')) {
-                    $query = $db->table('enrollments')
-                                ->where('student_id', $userId)
-                                ->join('courses', 'courses.id = enrollments.course_id')
-                                ->select('courses.*')
-                                ->get();
-                    $courses = $query ? $query->getResultArray() : [];
+                if ($db->query("SHOW TABLES LIKE 'courses'")->getNumRows() > 0) {
+                    $courses = $db->table('courses')
+                        ->select('id, title, description')
+                        ->get()
+                        ->getResultArray();
                 }
 
-                if ($this->tableExists('assignments')) {
-                    $deadlines = $db->table('assignments')
-                                    ->where('student_id', $userId)
-                                    ->where('due_date >=', date('Y-m-d'))
-                                    ->orderBy('due_date', 'ASC')
-                                    ->get()
-                                    ->getResultArray();
+                if ($db->query("SHOW TABLES LIKE 'enrollments'")->getNumRows() > 0) {
+                    $enrolledCourses = $db->table('enrollments')
+                        ->select('courses.id, courses.title, courses.description')
+                        ->join('courses', 'enrollments.course_id = courses.id')
+                        ->where('enrollments.user_id', $userId)
+                        ->get()
+                        ->getResultArray();
+
+                    $enrolledIds = array_column($enrolledCourses, 'id');
+                    $courses = array_filter($courses, fn($c) => !in_array($c['id'], $enrolledIds));
                 }
             }
         } catch (\Throwable $e) {
-            log_message('error', 'Dashboard query failed: ' . $e->getMessage());
-            $courses   = [];
-            $deadlines = [];
+            log_message('error', 'Dashboard error: ' . $e->getMessage());
         }
 
+        $stats = $userModel->getDashboardStats($userRole, $userId);
+
         $data = [
-            'title'      => ucfirst($userRole) . ' Dashboard',
-            'user_name'  => session()->get('user_name'),
-            'user_role'  => $userRole,
-            'users'      => $users,
-            'courses'    => $courses,
-            'stats'      => $stats,
-            'deadlines'  => $deadlines,
+            'title'            => ucfirst($userRole) . ' Dashboard',
+            'user'             => $user,
+            'user_name'        => $session->get('user_name'),
+            'user_role'        => $userRole,
+            'users'            => $users,
+            'courses'          => $courses,
+            'enrolledCourses'  => $enrolledCourses,
+            'stats'            => $stats,
+            'deadlines'        => $deadlines,
         ];
 
         return view('auth/dashboard', $data);

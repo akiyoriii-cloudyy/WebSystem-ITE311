@@ -13,7 +13,6 @@ class UserModel extends Model
     protected $returnType       = 'array';
     protected $useSoftDeletes   = false;
 
-    // ✅ Make sure 'status' exists in your DB (active/inactive)
     protected $allowedFields = [
         'name', 'email', 'password', 'role', 'status'
     ];
@@ -51,13 +50,13 @@ class UserModel extends Model
         ]
     ];
 
-    // 🔑 Find user by email
+
     public function findUserByEmail($email)
     {
         return $this->where('email', $email)->first();
     }
 
-    // 🔑 Create account (hash password + default active status)
+
     public function createAccount($userData)
     {
         $data = [
@@ -65,62 +64,86 @@ class UserModel extends Model
             'email'    => $userData['email'],
             'password' => password_hash($userData['password'], PASSWORD_DEFAULT),
             'role'     => $userData['role'],
-            'status'   => $userData['status'] ?? 'active', // 👈 default active
+            'status'   => $userData['status'] ?? 'active',
         ];
 
         if ($this->save($data)) {
             return $this->getInsertID();
         }
 
-        // ❌ If insert fails, return validation errors
         return $this->errors();
     }
 
-    // 🔑 Dashboard stats
+
     public function getDashboardStats($userRole, $userId = null)
     {
-        $stats = [];
         $db = \Config\Database::connect();
+        $stats = [];
 
-        if ($userRole === 'admin') {
-            $stats['total_users']     = $this->countAll();
-            $stats['total_courses']   = $this->tableExists('courses')
-                                        ? $db->table('courses')->countAll()
-                                        : 0;
-            $stats['active_students'] = $this->where(['role' => 'student', 'status' => 'active'])->countAllResults();
-            $stats['active_teachers'] = $this->where(['role' => 'teacher', 'status' => 'active'])->countAllResults();
-        } elseif ($userRole === 'teacher' && $userId) {
-            $stats['my_courses'] = $this->tableExists('courses')
-                                    ? $db->table('courses')
-                                         ->where('teacher_id', $userId)
-                                         ->countAllResults()
-                                    : 0;
-        } elseif ($userRole === 'student' && $userId) {
-            $stats['my_courses'] = ($this->tableExists('enrollments') && $this->tableExists('courses'))
-                                    ? $db->table('enrollments')
-                                         ->where('student_id', $userId)
-                                         ->join('courses', 'courses.id = enrollments.course_id')
-                                         ->countAllResults()
-                                    : 0;
+        try {
+            $tableExists = fn($table) =>
+                $db->query("SHOW TABLES LIKE '{$table}'")->getNumRows() > 0;
+
+            if ($userRole === 'admin') {
+                // ADMIN: overall system stats
+                $stats['total_users']     = $this->countAll();
+                $stats['active_students'] = $this->where(['role' => 'student', 'status' => 'active'])->countAllResults();
+                $stats['active_teachers'] = $this->where(['role' => 'teacher', 'status' => 'active'])->countAllResults();
+                $stats['total_courses']   = $tableExists('courses')
+                    ? $db->table('courses')->countAllResults()
+                    : 0;
+            }
+
+            elseif ($userRole === 'teacher' && $userId) {
+                // TEACHER: show owned courses
+                $stats['my_courses'] = $tableExists('courses')
+                    ? $db->table('courses')
+                        ->where('instructor_id', $userId)
+                        ->countAllResults()
+                    : 0;
+
+                $stats['total_students'] = $tableExists('enrollments')
+                    ? $db->table('enrollments')
+                        ->join('courses', 'courses.id = enrollments.course_id')
+                        ->where('courses.instructor_id', $userId)
+                        ->countAllResults()
+                    : 0;
+            }
+
+            elseif ($userRole === 'student' && $userId) {
+                // STUDENT: enrolled courses
+                $stats['my_courses'] = $tableExists('enrollments')
+                    ? $db->table('enrollments')
+                        ->where('user_id', $userId)
+                        ->countAllResults()
+                    : 0;
+
+                $stats['total_available'] = $tableExists('courses')
+                    ? $db->table('courses')->countAllResults()
+                    : 0;
+            }
+        } catch (\Throwable $e) {
+            log_message('error', 'Error in getDashboardStats: ' . $e->getMessage());
+            $stats = [
+                'total_users' => 0,
+                'total_courses' => 0,
+                'active_students' => 0,
+                'active_teachers' => 0,
+                'my_courses' => 0,
+                'total_students' => 0,
+                'total_available' => 0,
+            ];
         }
 
         return $stats;
     }
 
-    // 🔍 Helper: check if table exists
-    private function tableExists($tableName): bool
-    {
-        $db = \Config\Database::connect();
-        return $db->query("SHOW TABLES LIKE " . $db->escape($tableName))->getNumRows() > 0;
-    }
 
-    // 🔑 Get all users
     public function getAllUsers()
     {
         return $this->orderBy('created_at', 'DESC')->findAll();
     }
 
-    // 🔑 Verify credentials
     public function verifyCredentials($email, $password)
     {
         $user = $this->findUserByEmail($email);
