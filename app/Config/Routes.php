@@ -32,6 +32,7 @@ $routes->get('dashboard', 'Auth::dashboard');
 
 $routes->post('/course/enroll', 'Course::enroll');
 $routes->match(['get', 'post'], 'dashboard', 'Auth::dashboard');
+$routes->get('announcements', 'Announcement::index', ['filter' => 'roleauth']);
 
 
 
