@@ -17,8 +17,44 @@
         <p class="mb-0">Role: <strong><?= ucfirst(esc($user_role ?? '')) ?></strong></p>
     </div>
 
+    <!-- ✅ ANNOUNCEMENTS SECTION -->
+    <div class="card mb-4">
+        <div class="card-header bg-warning fw-bold">
+            <i class="bi bi-megaphone"></i> Announcements
+        </div>
+        <div class="card-body">
+            <?php if ($user_role === 'admin'): ?>
+                <!-- ✅ Admin Create Announcement Form -->
+                <form action="<?= base_url('announcements/create') ?>" method="post">
+                    <?= csrf_field() ?>
+                    <div class="mb-2">
+                        <input type="text" name="title" class="form-control" placeholder="Announcement Title" required>
+                    </div>
+                    <div class="mb-2">
+                        <textarea name="content" class="form-control" rows="3" placeholder="Write your announcement..." required></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">Post Announcement</button>
+                </form>
+                <hr>
+            <?php endif; ?>
+
+            <?php if (!empty($announcements)): ?>
+                <?php foreach ($announcements as $a): ?>
+                    <div class="alert alert-info mb-3">
+                        <h5 class="fw-bold mb-1"><?= esc($a['title']) ?></h5>
+                        <p class="mb-1"><?= esc($a['content']) ?></p>
+                        <small class="text-muted">Posted on <?= esc(date('M d, Y h:i A', strtotime($a['created_at']))) ?></small>
+                    </div>
+                <?php endforeach; ?>
+            <?php else: ?>
+                <p class="text-muted mb-0">No announcements yet.</p>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <!-- ✅ ROLE-SPECIFIC DASHBOARDS -->
     <?php if ($user_role === 'admin'): ?>
-        <!-- ✅ ADMIN DASHBOARD -->
+        <!-- ADMIN SECTION -->
         <div class="row mb-4">
             <div class="col-md-3"><div class="card text-center p-3"><h6>Total Users</h6><h3><?= esc($stats['total_users'] ?? 0) ?></h3></div></div>
             <div class="col-md-3"><div class="card text-center p-3"><h6>Total Courses</h6><h3><?= esc($stats['total_courses'] ?? 0) ?></h3></div></div>
@@ -29,7 +65,7 @@
         <div class="card mt-4">
             <div class="card-header fw-bold">System Overview</div>
             <div class="card-body">
-                <h6>Total Users: <?= esc($stats['total_users'] ?? 0) ?></h6>
+
                 <?php if (!empty($users)): ?>
                     <table class="table table-bordered align-middle">
                         <thead class="table-light">
@@ -67,21 +103,12 @@
         </div>
 
     <?php elseif ($user_role === 'teacher'): ?>
-        <!-- ✅ TEACHER DASHBOARD -->
-        <div class="row mb-4">
-            <div class="col-md-6">
-                <div class="card text-center p-3">
-                    <h5>My Courses</h5>
-                    <h3><?= esc($stats['my_courses'] ?? 0) ?></h3>
-                </div>
-            </div>
-        </div>
-
+        <!-- TEACHER SECTION -->
         <div class="card mt-4">
             <div class="card-header fw-bold">My Courses & Enrolled Students</div>
             <div class="card-body">
                 <?php if (!empty($courses)): ?>
-                    <table class="table table-bordered table-striped align-middle">
+                    <table class="table table-bordered align-middle">
                         <thead class="table-light">
                             <tr>
                                 <th>#</th>
@@ -93,70 +120,70 @@
                         <tbody>
                             <?php 
                             $db = \Config\Database::connect();
-                            foreach ($courses as $index => $c): 
+                            foreach ($courses as $index => $c):
                                 $courseId = $c['id'];
                                 $students = $db->table('enrollments')
-                                    ->select('users.name, users.email')
+                                    ->select('users.id, users.name, users.email')
                                     ->join('users', 'users.id = enrollments.user_id')
                                     ->where('enrollments.course_id', $courseId)
                                     ->get()->getResultArray();
                             ?>
                                 <tr>
                                     <td><?= $index + 1 ?></td>
-                                    <td><?= esc($c['name'] ?? $c['title'] ?? 'Unnamed Course') ?></td>
-                                    <td><?= count($students) ?></td>
+                                    <td><?= esc($c['title'] ?? $c['name']) ?></td>
                                     <td>
-                                        <?php if (count($students) > 0): ?>
-                                            <button class="btn btn-sm btn-info" data-bs-toggle="collapse" data-bs-target="#students-<?= $courseId ?>">View Students</button>
+                                        <?php if (!empty($students)): ?>
+                                            <span class="text-success"><?= count($students) ?> student(s)</span>
                                         <?php else: ?>
-                                            <span class="text-muted">No Enrolled Students</span>
+                                            <span class="text-muted">No students enrolled</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?php if (!empty($students)): ?>
+                                            <button 
+                                                class="btn btn-sm btn-primary view-students-btn" 
+                                                data-students='<?= json_encode($students) ?>'
+                                                data-course-title="<?= esc($c['title'] ?? $c['name']) ?>">
+                                                View
+                                            </button>
+                                        <?php else: ?>
+                                            <button class="btn btn-sm btn-secondary" disabled>No Action</button>
                                         <?php endif; ?>
                                     </td>
                                 </tr>
-
-                                <?php if (count($students) > 0): ?>
-                                    <tr id="students-<?= $courseId ?>" class="collapse bg-light">
-                                        <td colspan="4">
-                                            <ul class="mb-0">
-                                                <?php foreach ($students as $s): ?>
-                                                    <li><?= esc($s['name']) ?> (<?= esc($s['email']) ?>)</li>
-                                                <?php endforeach; ?>
-                                            </ul>
-                                        </td>
-                                    </tr>
-                                <?php endif; ?>
+                                
                             <?php endforeach; ?>
                         </tbody>
                     </table>
                 <?php else: ?>
-                    <p class="text-muted mb-0">No courses found.</p>
+                    <p class="text-muted mb-0">No courses assigned.</p>
                 <?php endif; ?>
             </div>
         </div>
 
-    <?php elseif ($user_role === 'student'): ?>
-        <!-- ✅ STUDENT DASHBOARD -->
-        <div class="row mb-4">
-            <div class="col-md-6">
-                <div class="card text-center p-3">
-                    <h5>My Enrolled Courses</h5>
-                    <h3><?= esc($stats['my_courses'] ?? 0) ?></h3>
-                </div>
-            </div>
-            <div class="col-md-6">
-                <div class="card text-center p-3">
-                    <h5>Upcoming Deadlines</h5>
-                    <h3><?= esc(isset($deadlines) ? count($deadlines) : 0) ?></h3>
+        <!-- MODAL FOR VIEWING STUDENTS -->
+        <div class="modal fade" id="studentsModal" tabindex="-1" aria-labelledby="studentsModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="studentsModalLabel">Enrolled Students</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <ul class="list-group" id="studentsList"></ul>
+                    </div>
                 </div>
             </div>
         </div>
 
+    <?php elseif ($user_role === 'student'): ?>
+        <!-- STUDENT SECTION -->
         <div class="card mb-4">
             <div class="card-header bg-success text-white">My Enrolled Courses</div>
             <ul class="list-group list-group-flush" id="enrolledCourses">
                 <?php if (!empty($enrolledCourses)): ?>
                     <?php foreach ($enrolledCourses as $course): ?>
-                        <li class="list-group-item"><?= esc($course['title'] ?? $course['name'] ?? 'Unknown Course') ?></li>
+                        <li class="list-group-item"><?= esc($course['title'] ?? $course['name']) ?></li>
                     <?php endforeach; ?>
                 <?php else: ?>
                     <li class="list-group-item text-muted no-enrollment-msg">You are not enrolled in any course yet.</li>
@@ -169,31 +196,40 @@
             <ul class="list-group list-group-flush">
                 <?php if (!empty($courses)): ?>
                     <?php foreach ($courses as $course): ?>
+                        <?php
+                            $isEnrolled = false;
+                            foreach ($enrolledCourses as $en) {
+                                if ($en['id'] == $course['id']) {
+                                    $isEnrolled = true;
+                                    break;
+                                }
+                            }
+                        ?>
                         <li class="list-group-item d-flex justify-content-between align-items-center">
-                            <span class="course-title"><?= esc($course['title'] ?? $course['name'] ?? 'Unknown Course') ?></span>
-                            <button class="btn btn-sm btn-success enroll-btn" data-course-id="<?= esc($course['id']) ?>">Enroll</button>
+                            <span class="course-title"><?= esc($course['title'] ?? $course['name']) ?></span>
+                            <?php if ($isEnrolled): ?>
+                                <button class="btn btn-sm btn-secondary" disabled>Enrolled</button>
+                            <?php else: ?>
+                                <button class="btn btn-sm btn-success enroll-btn" data-course-id="<?= esc($course['id']) ?>">Enroll</button>
+                            <?php endif; ?>
                         </li>
                     <?php endforeach; ?>
                 <?php else: ?>
-                    <li class="list-group-item text-muted">No available courses.</li>
+                    <li class="list-group-item text-muted">No available courses found.</li>
                 <?php endif; ?>
             </ul>
         </div>
 
         <div id="alertBox" class="alert mt-3 d-none"></div>
-
-        <div class="alert alert-info mt-4">
-            Welcome to your student dashboard! Use the sidebar to navigate to your courses and deadlines.
-        </div>
-    <?php endif; ?>
+<?php endif; ?>
 </div>
 
-<!-- ✅ jQuery -->
+<!-- ✅ AJAX Enroll Logic & Modal -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 
-<!-- ✅ Enroll AJAX -->
-<script>
+<script>   
 $(document).ready(function() {
+    // Enroll button
     $('.enroll-btn').click(function() {
         const courseId = $(this).data('course-id');
         const button = $(this);
@@ -209,49 +245,46 @@ $(document).ready(function() {
             dataType: 'json',
             success: function(response) {
                 if (response.status === 'success') {
-                    $('#alertBox').removeClass('d-none alert-danger').addClass('alert alert-success').text(response.message);
-                    button.prop('disabled', true).text('Enrolled');
+                    $('#alertBox').removeClass('d-none alert-danger')
+                        .addClass('alert alert-success')
+                        .text(response.message);
+                    button.prop('disabled', true)
+                        .removeClass('btn-success')
+                        .addClass('btn-secondary')
+                        .text('Enrolled');
                     $('.no-enrollment-msg').remove();
                     $('#enrolledCourses').append('<li class="list-group-item">' + courseTitle + '</li>');
                 } else {
-                    $('#alertBox').removeClass('d-none alert-success').addClass('alert alert-danger').text(response.message);
+                    $('#alertBox').removeClass('d-none alert-success')
+                        .addClass('alert alert-danger')
+                        .text(response.message);
                 }
             },
             error: function() {
-                $('#alertBox').removeClass('d-none alert-success').addClass('alert alert-danger').text('An error occurred. Please try again.');
+                $('#alertBox').removeClass('d-none alert-success')
+                    .addClass('alert alert-danger')
+                    .text('An error occurred. Please try again.');
             }
         });
     });
-});
-</script>
 
-<!-- ✅ Role Change AJAX (Now linked to Auth::dashboard) -->
-<script>
-$(document).on('change', '.role-select', function() {
-    const userId = $(this).data('user-id');
-    const newRole = $(this).val();
-    const row = $(this).closest('tr');
+    // View students modal
+    $('.view-students-btn').click(function() {
+        const students = $(this).data('students');
+        const courseTitle = $(this).data('course-title');
+        $('#studentsModalLabel').text('Students Enrolled in: ' + courseTitle);
 
-    $.ajax({
-        url: "<?= base_url('dashboard') ?>",
-        type: "POST",
-        data: {
-            id: userId,  // match controller key
-            role: newRole,
-            '<?= csrf_token() ?>': '<?= csrf_hash() ?>'
-        },
-        dataType: 'json',
-        success: function(res) {
-            if (res.status === 'success') {
-                row.find('td:nth-child(3)').html('<strong>' + newRole.charAt(0).toUpperCase() + newRole.slice(1) + '</strong>');
-                alert('✅ Role updated successfully!');
-            } else {
-                alert('❌ ' + (res.message || 'Failed to update role.'));
-            }
-        },
-        error: function() {
-            alert('❌ Server error. Please try again.');
+        let listHtml = '';
+        if (students.length > 0) {
+            students.forEach(function(s) {
+                listHtml += '<li class="list-group-item">' + s.name + ' (' + s.email + ')</li>';
+            });
+        } else {
+            listHtml = '<li class="list-group-item text-muted">No students enrolled.</li>';
         }
+
+        $('#studentsList').html(listHtml);
+        $('#studentsModal').modal('show');
     });
 });
 </script>

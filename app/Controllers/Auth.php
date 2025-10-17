@@ -3,6 +3,8 @@
 namespace App\Controllers;
 
 use App\Models\UserModel;
+use App\Models\AnnouncementModel;
+use App\Models\EnrollmentModel;
 
 class Auth extends BaseController
 {
@@ -55,7 +57,7 @@ class Auth extends BaseController
                 'logged_in' => true,
             ]);
 
-            // ✅ Redirect to single dashboard (merged logic)
+            // ✅ Redirect to single dashboard
             return redirect()->to('/auth/dashboard');
         }
     }
@@ -97,109 +99,161 @@ class Auth extends BaseController
         return redirect()->to('/auth/login')->with('success', 'You have been logged out.');
     }
 
-    // ✅ SINGLE DASHBOARD for All Roles
+    // ✅ SINGLE DASHBOARD for All Roles (with Announcements & Enrollment)
     public function dashboard()
-{
-    $session = session();
+    {
+        $session = session();
 
-    // 🔐 Check login
-    if (!$session->get('logged_in')) {
-        return redirect()->to('/auth/login')->with('error', 'Please login first.');
-    }
-
-    $db        = \Config\Database::connect();
-    $userModel = new UserModel();
-    $userId    = $session->get('user_id');
-    $userRole  = strtolower($session->get('user_role'));
-    $user      = $userModel->find($userId);
-
-    // --- Admin Section ---
-    if ($userRole === 'admin') {
-        $users = $userModel->select('id, name, email, role')->findAll();
-        $courses = [];
-
-
-        if ($db->query("SHOW TABLES LIKE 'courses'")->getNumRows() > 0) {
-            $courses = $db->table('courses')->get()->getResultArray();
+        // 🔐 Check login
+        if (!$session->get('logged_in')) {
+            return redirect()->to('/auth/login')->with('error', 'Please login first.');
         }
 
-        $data = [
-            'title'     => 'Admin Dashboard',
-            'user'      => $user,
-            'users'     => $users,
-            'courses'   => $courses,
-            'user_name' => $session->get('user_name'),
-            'user_role' => $userRole
-        ];
+        $db                = \Config\Database::connect();
+        $userModel         = new UserModel();
+        $announcementModel = new AnnouncementModel();
+        $enrollmentModel   = new EnrollmentModel();
 
-        // ✅ Use the unified dashboard view
-        return view('auth/dashboard', $data);
-    }
+        $userId   = $session->get('user_id');
+        $userRole = strtolower($session->get('user_role'));
+        $user     = $userModel->find($userId);
 
-    // --- Teacher Section ---
-    elseif ($userRole === 'teacher') {
-        $courses = [];
+        // ✅ Admin can create announcements directly from dashboard
+        if ($this->request->getMethod() === 'POST' && $userRole === 'admin') {
 
-        if ($db->query("SHOW TABLES LIKE 'courses'")->getNumRows() > 0) {
-            $courses = $db->table('courses')
-                ->where('instructor_id', $userId)
-                ->get()
-                ->getResultArray();
+            // --- Admin Role Update via AJAX ---
+            if ($this->request->isAJAX() && $this->request->getPost('id') && $this->request->getPost('role')) {
+                $userModel->update($this->request->getPost('id'), [
+                    'role' => $this->request->getPost('role')
+                ]);
+                return $this->response->setJSON(['status' => 'success', 'message' => 'Role updated successfully!']);
+            }
+
+            // --- Admin Creating Announcement ---
+            if ($this->request->getPost('title') && $this->request->getPost('content')) {
+                $announcementModel->insert([
+                    'title'      => $this->request->getPost('title'),
+                    'content'    => $this->request->getPost('content'),
+                    'created_by' => $userId,
+                    'created_at' => date('Y-m-d H:i:s'),
+                ]);
+                return redirect()->to('/auth/dashboard')->with('success', '✅ Announcement created successfully!');
+            }
         }
 
-        $data = [
-            'title'     => 'Teacher Dashboard',
-            'user'      => $user,
-            'courses'   => $courses,
-            'user_name' => $session->get('user_name'),
-            'user_role' => $userRole
-        ];
+        // ✅ Student Enrollment Handling
+        if ($this->request->getMethod() === 'POST' && $userRole === 'student') {
+            $courseId = $this->request->getPost('course_id');
 
-        // ✅ Also use the unified dashboard view
-        return view('auth/dashboard', $data);
-    }
+            // Prevent duplicate enrollment
+            $exists = $enrollmentModel
+                ->where('user_id', $userId)
+                ->where('course_id', $courseId)
+                ->first();
 
-    // --- Student Section ---
-    elseif ($userRole === 'student') {
-        $courses = [];
-        $enrolledCourses = [];
+            if ($exists) {
+                return redirect()->to('/auth/dashboard')->with('error', '⚠️ You are already enrolled in this course.');
+            }
 
-        if ($db->query("SHOW TABLES LIKE 'courses'")->getNumRows() > 0) {
-            $courses = $db->table('courses')
-                ->select('id, title, description')
-                ->get()
-                ->getResultArray();
+            $enrollmentModel->insert([
+                'user_id'    => $userId,
+                'course_id'  => $courseId,
+                'created_at' => date('Y-m-d H:i:s'),
+            ]);
+
+            return redirect()->to('/auth/dashboard')->with('success', '✅ Successfully enrolled in the course!');
         }
 
-        if ($db->query("SHOW TABLES LIKE 'enrollments'")->getNumRows() > 0) {
-            $enrolledCourses = $db->table('enrollments')
-                ->select('courses.id, courses.title, courses.description')
-                ->join('courses', 'enrollments.course_id = courses.id')
-                ->where('enrollments.user_id', $userId)
-                ->get()
-                ->getResultArray();
+        // --- Admin Dashboard ---
+        if ($userRole === 'admin') {
+            $users = $userModel->select('id, name, email, role')->findAll();
+            $courses = [];
+            if ($db->query("SHOW TABLES LIKE 'courses'")->getNumRows() > 0) {
+                $courses = $db->table('courses')->get()->getResultArray();
+            }
+            $announcements = $announcementModel->orderBy('created_at', 'DESC')->findAll();
+
+            $data = [
+                'title'         => 'Admin Dashboard',
+                'user'          => $user,
+                'users'         => $users,
+                'courses'       => $courses,
+                'announcements' => $announcements,
+                'user_name'     => $session->get('user_name'),
+                'user_role'     => $userRole,
+                'stats'         => [
+                    'total_users'     => $userModel->countAll(),
+                    'total_courses'   => $db->table('courses')->countAllResults(),
+                    'active_students' => $userModel->where('role', 'student')->countAllResults(),
+                    'active_teachers' => $userModel->where('role', 'teacher')->countAllResults(),
+                ]
+            ];
+
+            return view('auth/dashboard', $data);
         }
 
-        $announcementModel = new \App\Models\AnnouncementModel();
-        $announcements = $announcementModel->orderBy('created_at', 'DESC')->findAll();
+        // --- Teacher Dashboard ---
+        elseif ($userRole === 'teacher') {
+            $courses = [];
+            if ($db->query("SHOW TABLES LIKE 'courses'")->getNumRows() > 0) {
+                $courses = $db->table('courses')->where('instructor_id', $userId)->get()->getResultArray();
+            }
 
-        $data = [
-            'title'           => 'Student Announcements',
-            'user'            => $user,
-            'courses'         => $courses,
-            'enrolledCourses' => $enrolledCourses,
-            'announcements'   => $announcements,
-            'user_name'       => $session->get('user_name'),
-            'user_role'       => $userRole
-        ];
+            $announcements = $announcementModel->orderBy('created_at', 'DESC')->findAll();
 
-        // ✅ Students use the announcements view
-        return view('auth/announcements', $data);
+            $data = [
+                'title'         => 'Teacher Dashboard',
+                'user'          => $user,
+                'courses'       => $courses,
+                'announcements' => $announcements,
+                'user_name'     => $session->get('user_name'),
+                'user_role'     => $userRole,
+                'stats'         => [
+                    'my_courses' => count($courses)
+                ]
+            ];
+
+            return view('auth/dashboard', $data);
+        }
+
+        // --- Student Dashboard ---
+        elseif ($userRole === 'student') {
+            $courses = [];
+            $enrolledCourses = [];
+
+            if ($db->query("SHOW TABLES LIKE 'courses'")->getNumRows() > 0) {
+                $courses = $db->table('courses')->select('id, title, description')->get()->getResultArray();
+            }
+
+            if ($db->query("SHOW TABLES LIKE 'enrollments'")->getNumRows() > 0) {
+                $enrolledCourses = $enrollmentModel
+                    ->select('courses.id, courses.title, courses.description')
+                    ->join('courses', 'enrollments.course_id = courses.id')
+                    ->where('enrollments.user_id', $userId)
+                    ->findAll();
+            }
+
+            $announcements = $announcementModel->orderBy('created_at', 'DESC')->findAll();
+
+            $data = [
+                'title'           => 'Student Dashboard',
+                'user'            => $user,
+                'courses'         => $courses,
+                'enrolledCourses' => $enrolledCourses,
+                'announcements'   => $announcements,
+                'user_name'       => $session->get('user_name'),
+                'user_role'       => $userRole,
+                'stats'           => [
+                    'my_courses' => count($enrolledCourses)
+                ]
+            ];
+
+            return view('auth/dashboard', $data);
+        }
+
+        // --- Unknown Role ---
+        else {
+            return redirect()->to('/auth/login')->with('error', 'Unknown user role detected.');
+        }
     }
-
-    // --- Unknown Role ---
-    else {
-        return redirect()->to('/auth/login')->with('error', 'Unknown user role detected.');
-    }
-}
 }

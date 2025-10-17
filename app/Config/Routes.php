@@ -23,17 +23,28 @@ $routes->get('register', 'Auth::register');
 $routes->post('register', 'Auth::register');
 $routes->get('logout', 'Auth::logout');
 
-// ✅ Unified Dashboard (for all roles — admin, teacher, student)
-// This replaces /admin/dashboard and /teacher/dashboard routes
-$routes->match(['get', 'post'], 'auth/dashboard', 'Auth::dashboard');
-$routes->get('dashboard', 'Auth::dashboard');
+// ✅ Protected routes (require RoleAuth filter)
+$routes->group('', ['filter' => 'roleauth'], function ($routes) {
 
-// ✅ Announcements (for students/teachers/admins)
-$routes->get('announcements', 'Announcement::index');
-$routes->post('announcements/create', 'Announcement::create');
-$routes->get('announcements/delete/(:num)', 'Announcement::delete/$1');
+    // 🔹 Unified Dashboard (Admin, Teacher, Student)
+    $routes->match(['get', 'post'], 'auth/dashboard', 'Auth::dashboard');
+    $routes->get('dashboard', 'Auth::dashboard');
 
-// ✅ Courses & Enrollment (if used in your lab)
-$routes->post('course/enroll', 'Course::enroll');
-$routes->get('manage-users', 'Auth::manageUsers');
-$routes->get('manage-courses', 'Auth::manageCourses');
+    // 🔹 Announcements (all users can view)
+    $routes->get('announcements', 'Announcements::index');
+
+    // 🔹 Admin-only announcement management
+    $routes->group('', ['filter' => 'roleauth:admin'], function ($routes) {
+        // Create announcement
+        $routes->post('announcements/create', 'Announcements::create');
+        // Delete announcement
+        $routes->get('announcements/delete/(:num)', 'Announcements::delete/$1');
+    });
+
+    // 🔹 Courses & Enrollment
+    $routes->post('course/enroll', 'Course::enroll');
+
+    // 🔹 User and course management
+    $routes->get('manage-users', 'Auth::manageUsers');
+    $routes->get('manage-courses', 'Auth::manageCourses');
+});
