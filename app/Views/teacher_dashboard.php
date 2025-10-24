@@ -139,15 +139,16 @@
                                         <?php endif; ?>
                                     </td>
                                     <td>
+                                        <a class="btn btn-sm btn-success" href="<?= base_url('teacher/course/' . $courseId . '/upload') ?>">Upload Materials</a>
                                         <?php if (!empty($students)): ?>
                                             <button 
                                                 class="btn btn-sm btn-primary view-students-btn" 
                                                 data-students='<?= json_encode($students) ?>'
                                                 data-course-title="<?= esc($c['title'] ?? $c['name']) ?>">
-                                                View
+                                                View Students
                                             </button>
                                         <?php else: ?>
-                                            <button class="btn btn-sm btn-secondary" disabled>No Action</button>
+                                            <button class="btn btn-sm btn-secondary" disabled>No Students</button>
                                         <?php endif; ?>
                                     </td>
                                 </tr>

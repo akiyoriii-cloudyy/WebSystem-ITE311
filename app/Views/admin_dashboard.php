@@ -84,7 +84,7 @@
                                     <td><strong><?= ucfirst(esc($u['role'])) ?></strong></td>
                                     <td>
                                         <?php if (session()->get('user_id') != $u['id']): ?>
-                                            <select class="form-select form-select-sm role-select" data-user-id="<?= $u['id'] ?>">
+                                            <select class="form-select form-select-sm role-select" data-user-id="<?= $u['id'] ?>" data-current-role="<?= esc($u['role']) ?>">
                                                 <option value="teacher" <?= $u['role'] === 'teacher' ? 'selected' : '' ?>>Teacher</option>
                                                 <option value="student" <?= $u['role'] === 'student' ? 'selected' : '' ?>>Student</option>
                                             </select>
@@ -98,6 +98,36 @@
                     </table>
                 <?php else: ?>
                     <p class="text-muted mb-0">No users found.</p>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <div class="card mt-4">
+            <div class="card-header fw-bold">Courses</div>
+            <div class="card-body">
+                <?php if (!empty($courses)): ?>
+                    <table class="table table-bordered align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>#</th>
+                                <th>Course</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($courses as $i => $c): ?>
+                                <tr>
+                                    <td><?= $i + 1 ?></td>
+                                    <td><?= esc($c['title'] ?? $c['name'] ?? ('Course #' . $c['id'])) ?></td>
+                                    <td>
+                                        <a class="btn btn-sm btn-primary" href="<?= base_url('admin/course/' . $c['id'] . '/upload') ?>">Upload Materials</a>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php else: ?>
+                    <p class="text-muted mb-0">No courses found.</p>
                 <?php endif; ?>
             </div>
         </div>
@@ -229,6 +259,58 @@
 
 <script>
 $(document).ready(function() {
+    // Role change handler
+    $('.role-select').change(function() {
+        const userId = $(this).data('user-id');
+        const newRole = $(this).val();
+        const selectElement = $(this);
+        const currentRole = selectElement.data('current-role');
+        
+        if (!confirm('Change this user\'s role to ' + newRole.charAt(0).toUpperCase() + newRole.slice(1) + '?')) {
+            // Revert to current role if cancelled
+            selectElement.val(currentRole);
+            return;
+        }
+        
+        $.ajax({
+            url: '<?= base_url('admin/users/update-role') ?>',
+            type: 'POST',
+            data: {
+                id: userId,
+                role: newRole,
+                '<?= csrf_token() ?>': '<?= csrf_hash() ?>'
+            },
+            dataType: 'json',
+            success: function(response) {
+                if (response.status === 'success') {
+                    // Update the Current Role column
+                    selectElement.closest('tr').find('td:eq(2) strong').text(newRole.charAt(0).toUpperCase() + newRole.slice(1));
+                    
+                    // Update the data attribute to new role for next change
+                    selectElement.data('current-role', newRole);
+                    
+                    // Show success message
+                    let alertHtml = '<div class="alert alert-success alert-dismissible fade show" role="alert">' +
+                        response.message +
+                        '<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>';
+                    $('.container .card').first().prepend(alertHtml);
+                    
+                    // Auto-dismiss after 3 seconds
+                    setTimeout(function() {
+                        $('.alert-success').fadeOut();
+                    }, 3000);
+                } else {
+                    alert('Error: ' + response.message);
+                    selectElement.val(currentRole); // Revert on error
+                }
+            },
+            error: function() {
+                alert('An error occurred while updating the role.');
+                selectElement.val(currentRole); // Revert on error
+            }
+        });
+    });
+    
     // Initialize enrolled courses set for quick lookup
     const enrolledCourseIds = new Set();
     $('#enrolledCourses li').each(function() {

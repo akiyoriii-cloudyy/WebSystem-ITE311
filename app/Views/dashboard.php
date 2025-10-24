@@ -7,8 +7,10 @@
     <?php if (session()->getFlashdata('success')): ?>
         <div class="alert alert-success text-center"><?= session()->getFlashdata('success') ?></div>
     <?php endif; ?>
-    <?php if (session()->getFlashdata('error')): ?>
-        <div class="alert alert-danger text-center"><?= session()->getFlashdata('error') ?></div>
+    <?php 
+        $dashErr = session()->getFlashdata('error');
+        if ($dashErr && stripos($dashErr, 'access denied') === false && stripos($dashErr, 'insufficient permissions') === false): ?>
+        <div class="alert alert-danger text-center"><?= $dashErr ?></div>
     <?php endif; ?>
 
     <!-- ✅ Welcome Card -->
@@ -151,7 +153,6 @@
                                         <?php endif; ?>
                                     </td>
                                 </tr>
-                                
                             <?php endforeach; ?>
                         </tbody>
                     </table>
@@ -183,7 +184,10 @@
             <ul class="list-group list-group-flush" id="enrolledCourses">
                 <?php if (!empty($enrolledCourses)): ?>
                     <?php foreach ($enrolledCourses as $course): ?>
-                        <li class="list-group-item"><?= esc($course['title'] ?? $course['name']) ?></li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <span><?= esc($course['title'] ?? $course['name']) ?></span>
+                            <a class="btn btn-sm btn-primary" href="<?= base_url('materials/course/' . (int)$course['id']) ?>">View Materials</a>
+                        </li>
                     <?php endforeach; ?>
                 <?php else: ?>
                     <li class="list-group-item text-muted no-enrollment-msg">You are not enrolled in any course yet.</li>
