@@ -5,7 +5,7 @@ namespace App\Controllers;
 use App\Models\AnnouncementModel;
 use App\Models\UserModel;
 
-class Announcements extends BaseController
+class Announcement extends BaseController
 {
     protected $helpers = ['form', 'url'];
 

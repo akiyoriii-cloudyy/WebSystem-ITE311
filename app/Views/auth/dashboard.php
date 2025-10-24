@@ -227,9 +227,30 @@
 <!-- ✅ AJAX Enroll Logic & Modal -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 
-<script>   
+<script>
 $(document).ready(function() {
+    // Initialize enrolled courses set for quick lookup
+    const enrolledCourseIds = new Set();
+    $('#enrolledCourses li').each(function() {
+        const courseText = $(this).text().trim();
+        const courseId = $(this).data('course-id');
+        if (courseId) enrolledCourseIds.add(courseId);
+    });
+
     // Enroll button
+    $('.enroll-btn').each(function() {
+        const button = $(this);
+        const courseId = button.data('course-id');
+
+        // Disable button if already enrolled (in case of page refresh)
+        if (enrolledCourseIds.has(courseId)) {
+            button.prop('disabled', true)
+                  .removeClass('btn-success')
+                  .addClass('btn-secondary')
+                  .text('Enrolled');
+        }
+    });
+
     $('.enroll-btn').click(function() {
         const courseId = $(this).data('course-id');
         const button = $(this);
@@ -245,25 +266,33 @@ $(document).ready(function() {
             dataType: 'json',
             success: function(response) {
                 if (response.status === 'success') {
-                    $('#alertBox').removeClass('d-none alert-danger')
-                        .addClass('alert alert-success')
-                        .text(response.message);
+                    // Add to enrolled course list
+                    $('#enrolledCourses').append('<li class="list-group-item" data-course-id="' + courseId + '">' + courseTitle + '</li>');
+                    enrolledCourseIds.add(courseId);
+
+                    // Disable the enroll button
                     button.prop('disabled', true)
-                        .removeClass('btn-success')
-                        .addClass('btn-secondary')
-                        .text('Enrolled');
+                          .removeClass('btn-success')
+                          .addClass('btn-secondary')
+                          .text('Enrolled');
+
+                    // Remove "no enrollment" message if present
                     $('.no-enrollment-msg').remove();
-                    $('#enrolledCourses').append('<li class="list-group-item">' + courseTitle + '</li>');
+
+                    // Show success alert
+                    $('#alertBox').removeClass('d-none alert-danger')
+                                  .addClass('alert alert-success')
+                                  .text(response.message);
                 } else {
                     $('#alertBox').removeClass('d-none alert-success')
-                        .addClass('alert alert-danger')
-                        .text(response.message);
+                                  .addClass('alert alert-danger')
+                                  .text(response.message);
                 }
             },
             error: function() {
                 $('#alertBox').removeClass('d-none alert-success')
-                    .addClass('alert alert-danger')
-                    .text('An error occurred. Please try again.');
+                              .addClass('alert alert-danger')
+                              .text('An error occurred. Please try again.');
             }
         });
     });

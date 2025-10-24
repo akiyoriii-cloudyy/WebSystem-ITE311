@@ -26,7 +26,7 @@ class Filters extends BaseFilters
         'forcehttps'    => ForceHTTPS::class,
         'pagecache'     => PageCache::class,
         'performance'   => PerformanceMetrics::class,
-        'roleauth'      => \App\Filters\RoleAuth::class, 
+         'roleauth'  => \App\Filters\RoleAuth::class, // <- added here
     ];
 
     // Required filters are always applied (before or after)

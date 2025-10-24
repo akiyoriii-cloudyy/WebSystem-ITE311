@@ -120,20 +120,28 @@
     <div>
         <h4>🎓 LMS Portal</h4>
 
-        <a href="<?= site_url('/dashboard') ?>" 
-           class="<?= (current_url() == site_url('/dashboard')) ? 'active' : '' ?>">🏠 Dashboard</a>
+        <?php if ($user_role === 'admin'): ?>
+            <a href="<?= site_url('/admin_dashboard') ?>" 
+               class="<?= (current_url() == site_url('/admin_dashboard')) ? 'active' : '' ?>">🏠 Dashboard</a>
+        <?php elseif ($user_role === 'teacher'): ?>
+            <a href="<?= site_url('/teacher_dashboard') ?>" 
+               class="<?= (current_url() == site_url('/teacher_dashboard')) ? 'active' : '' ?>">🏠 Dashboard</a>
+        <?php else: ?>
+            <a href="<?= site_url('/dashboard') ?>" 
+               class="<?= (current_url() == site_url('/dashboard')) ? 'active' : '' ?>">🏠 Dashboard</a>
+        <?php endif; ?>
 
         <?php if ($user_role === 'admin'): ?>
             <a href="<?= site_url('/admin/users') ?>">👥 Manage Users</a>
             <a href="<?= site_url('/admin/courses') ?>">📘 Manage Courses</a>
             <a href="<?= site_url('/admin/reports') ?>">📑 Reports</a>
         <?php elseif ($user_role === 'teacher'): ?>
-            <a href="<?= site_url('/teacher/dashboard') ?>">🧑‍🏫 Teacher Dashboard</a>
+            
             <a href="<?= site_url('/teacher/courses') ?>">📘 My Courses</a>
             <a href="<?= site_url('/teacher/students') ?>">👨‍🎓 My Students</a>
             <a href="<?= site_url('/teacher/deadlines') ?>">⏰ Deadlines</a>
         <?php elseif ($user_role === 'student'): ?>
-            <a href="<?= site_url('/student/dashboard') ?>">🎓 Student Dashboard</a>
+
             <a href="<?= site_url('/student/enrollments') ?>">📚 My Enrollments</a>
             <a href="<?= site_url('/student/courses') ?>">🧾 Available Courses</a>
             <a href="<?= site_url('/student/deadlines') ?>">⏰ Deadlines</a>
