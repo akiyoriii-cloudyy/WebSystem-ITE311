@@ -287,6 +287,35 @@ $(document).ready(function() {
                     $('#alertBox').removeClass('d-none alert-danger')
                                   .addClass('alert alert-success')
                                   .text(response.message);
+
+                    // ✅ Trigger notification refresh immediately
+                    if (typeof fetchNotifications === 'function') {
+                        setTimeout(function() {
+                            fetchNotifications();
+                            
+                            // After fetching, get the latest notification and show toast
+                            setTimeout(function() {
+                                $.ajax({
+                                    url: "<?= base_url('notifications') ?>",
+                                    type: "GET",
+                                    dataType: 'json',
+                                    success: function(notifResponse) {
+                                        if (notifResponse.status === 'success' && 
+                                            notifResponse.notifications && 
+                                            notifResponse.notifications.length > 0) {
+                                            
+                                            // Get the most recent unread notification
+                                            const latestNotif = notifResponse.notifications.find(n => n.is_read == 0);
+                                            
+                                            if (latestNotif && typeof showNotificationToast === 'function') {
+                                                showNotificationToast(latestNotif.id, latestNotif.message);
+                                            }
+                                        }
+                                    }
+                                });
+                            }, 500);
+                        }, 500);
+                    }
                 } else {
                     $('#alertBox').removeClass('d-none alert-success')
                                   .addClass('alert alert-danger')
