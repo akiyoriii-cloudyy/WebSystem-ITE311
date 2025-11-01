@@ -118,6 +118,12 @@ $routes->group('', ['filter' => 'roleauth'], function ($routes) {
     $routes->get('materials/download/(:num)', 'Materials::download/$1');
     $routes->get('materials/course/(:num)', 'Materials::listByCourse/$1');
 
+    // --------------------
+    // Notifications (AJAX API Endpoints)
+    // --------------------
+    $routes->get('notifications', 'Notifications::get');
+    $routes->post('notifications/mark_read/(:num)', 'Notifications::mark_as_read/$1');
+    $routes->post('notifications/mark_all_read', 'Notifications::mark_all_as_read');
 
 });
 

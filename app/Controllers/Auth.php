@@ -6,6 +6,7 @@ use App\Models\UserModel;
 use App\Models\AnnouncementModel;
 use App\Models\EnrollmentModel;
 use App\Models\MaterialModel;
+use App\Models\NotificationModel;
 
 class Auth extends BaseController
 {
@@ -207,6 +208,16 @@ class Auth extends BaseController
                 'course_id'  => $courseId,
                 'created_at' => date('Y-m-d H:i:s'),
             ]);
+
+            // ✅ Create notification for the student
+            $notificationModel = new NotificationModel();
+            $course = $db->table('courses')->where('id', $courseId)->get()->getRowArray();
+            $courseName = $course ? $course['title'] : 'a course';
+            
+            $notificationModel->createNotification(
+                $userId,
+                "You have been successfully enrolled in {$courseName}"
+            );
 
             return redirect()->to('/dashboard')->with('success', '✅ Successfully enrolled in the course!');
         }
