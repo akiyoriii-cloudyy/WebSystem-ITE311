@@ -17,41 +17,6 @@
         <p class="mb-0">Role: <strong><?= ucfirst(esc($user_role ?? '')) ?></strong></p>
     </div>
 
-    <!-- ✅ ANNOUNCEMENTS SECTION -->
-    <div class="card mb-4">
-        <div class="card-header bg-warning fw-bold">
-            <i class="bi bi-megaphone"></i> Announcements
-        </div>
-        <div class="card-body">
-            <?php if ($user_role === 'admin'): ?>
-                <!-- ✅ Admin Create Announcement Form -->
-                <form action="<?= base_url('announcements/create') ?>" method="post">
-                    <?= csrf_field() ?>
-                    <div class="mb-2">
-                        <input type="text" name="title" class="form-control" placeholder="Announcement Title" required>
-                    </div>
-                    <div class="mb-2">
-                        <textarea name="content" class="form-control" rows="3" placeholder="Write your announcement..." required></textarea>
-                    </div>
-                    <button type="submit" class="btn btn-primary w-100">Post Announcement</button>
-                </form>
-                <hr>
-            <?php endif; ?>
-
-            <?php if (!empty($announcements)): ?>
-                <?php foreach ($announcements as $a): ?>
-                    <div class="alert alert-info mb-3">
-                        <h5 class="fw-bold mb-1"><?= esc($a['title']) ?></h5>
-                        <p class="mb-1"><?= esc($a['content']) ?></p>
-                        <small class="text-muted">Posted on <?= esc(date('M d, Y h:i A', strtotime($a['created_at']))) ?></small>
-                    </div>
-                <?php endforeach; ?>
-            <?php else: ?>
-                <p class="text-muted mb-0">No announcements yet.</p>
-            <?php endif; ?>
-        </div>
-    </div>
-
     <!-- ✅ ROLE-SPECIFIC DASHBOARDS -->
     <?php if ($user_role === 'admin'): ?>
         <!-- ADMIN SECTION -->

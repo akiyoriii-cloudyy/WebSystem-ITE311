@@ -285,7 +285,60 @@ class Auth extends BaseController
 
             
             if ($db->query("SHOW TABLES LIKE 'courses'")->getNumRows() > 0) {
-                $courses = $db->table('courses')->select('id, title, description')->get()->getResultArray();
+                // Check if code column exists
+                $hasCodeColumn = false;
+                try {
+                    $hasCodeColumn = $db->query("SHOW COLUMNS FROM courses WHERE Field = 'code'")->getNumRows() > 0;
+                } catch (\Exception $e) {
+                    // Column check failed, assume it doesn't exist
+                    $hasCodeColumn = false;
+                }
+                
+                // Build select string based on available columns
+                $selectFields = 'courses.id, courses.title, courses.description';
+                if ($hasCodeColumn) {
+                    $selectFields .= ', courses.code';
+                }
+                $selectFields .= ', users.name as instructor_name';
+                
+                // Build query
+                $query = $db->table('courses')
+                    ->select($selectFields)
+                    ->join('users', 'courses.instructor_id = users.id', 'left');
+                
+                $result = $query->get();
+                
+                // Check if query was successful
+                if ($result !== false) {
+                    $courses = $result->getResultArray();
+                    // Ensure code exists in array even if column doesn't exist
+                    foreach ($courses as &$course) {
+                        if (!isset($course['code'])) {
+                            $course['code'] = '';
+                        }
+                        if (!isset($course['instructor_name'])) {
+                            $course['instructor_name'] = 'N/A';
+                        }
+                    }
+                } else {
+                    // If join fails, try without join
+                    try {
+                        $result = $db->table('courses')
+                            ->select('courses.id, courses.title, courses.description')
+                            ->get();
+                        
+                        if ($result !== false) {
+                            $courses = $result->getResultArray();
+                            foreach ($courses as &$course) {
+                                $course['code'] = '';
+                                $course['instructor_name'] = 'N/A';
+                            }
+                        }
+                    } catch (\Exception $e) {
+                        // Query failed completely, courses will remain empty array
+                        $courses = [];
+                    }
+                }
             }
             
             // Check if enrollments table exists

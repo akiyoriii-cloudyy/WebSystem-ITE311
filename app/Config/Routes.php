@@ -110,6 +110,12 @@ $routes->group('', ['filter' => 'roleauth'], function ($routes) {
     // Course Enrollment (All roles can enroll - mainly for students)
     // --------------------
     $routes->post('course/enroll', 'Course::enroll');
+    
+    // --------------------
+    // Course Search (All logged-in users can search)
+    // --------------------
+    $routes->get('courses', 'Course::index');
+    $routes->match(['get', 'post'], 'courses/search', 'Course::search');
 
     // --------------------
     // Materials (Delete/Download)
