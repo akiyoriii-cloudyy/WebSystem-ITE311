@@ -152,6 +152,8 @@ class Auth extends BaseController
         $user     = $userModel->find($userId);
         
         // Check if role changed in database and auto-redirect
+        // Always use database role to ensure it's current
+        $dbRole = '';
         if ($user) {
             $dbRole = strtolower($user['role'] ?? '');
             $sessionRole = strtolower($session->get('user_role') ?? '');
@@ -169,7 +171,8 @@ class Auth extends BaseController
             }
         }
         
-        $userRole = strtolower($session->get('user_role'));
+        // Always use database role (or session as fallback)
+        $userRole = $dbRole ?: strtolower($session->get('user_role') ?? '');
 
         // ✅ Admin: create announcements & update roles
         if ($this->request->getMethod() === 'POST' && $userRole === 'admin') {

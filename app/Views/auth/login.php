@@ -57,10 +57,6 @@
             </div>
 
             <button class="btn btn-success w-100" type="submit">Login</button>
-
-            <div class="text-center mt-3">
-                <a href="<?= site_url('register') ?>">Don't have an account? Register</a>
-            </div>
         </form>
     </div>
 </div>

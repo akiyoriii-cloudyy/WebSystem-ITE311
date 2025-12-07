@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
+    <meta name="<?= csrf_token() ?>" content="<?= csrf_hash() ?>">
+    <meta name="<?= csrf_header() ?>" content="<?= csrf_hash() ?>">
     <title><?= esc($title ?? 'Dashboard') ?></title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
@@ -61,6 +63,46 @@
         .sidebar a:hover, .sidebar a.active {
             background: rgba(255,255,255,0.2);
             color: #fff;
+        }
+
+        /* Settings Dropdown */
+        .settings-menu {
+            position: relative;
+        }
+
+        .settings-toggle {
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .settings-toggle::after {
+            content: '▼';
+            font-size: 0.7rem;
+            transition: transform 0.3s ease;
+        }
+
+        .settings-toggle.active::after {
+            transform: rotate(180deg);
+        }
+
+        .settings-submenu {
+            display: none;
+            margin-left: 15px;
+            margin-top: 5px;
+            padding-left: 10px;
+            border-left: 2px solid rgba(255,255,255,0.3);
+        }
+
+        .settings-submenu.show {
+            display: block;
+        }
+
+        .settings-submenu a {
+            padding: 8px 15px;
+            font-size: 0.9rem;
+            margin-bottom: 5px;
         }
 
         .content {
@@ -421,6 +463,22 @@
             </div>
         </div>
 
+        <!-- Settings Menu with Dropdown -->
+        <div class="settings-menu">
+            <a href="#" class="settings-toggle <?= (current_url() == site_url('/settings') || current_url() == site_url('/admin/user-management')) ? 'active' : '' ?>" 
+               onclick="toggleSettingsMenu(event)">
+                ⚙️ Settings
+            </a>
+            <div class="settings-submenu <?= (current_url() == site_url('/settings') || current_url() == site_url('/admin/user-management')) ? 'show' : '' ?>" id="settingsSubmenu">
+                <?php if ($user_role === 'admin'): ?>
+                    <a href="<?= site_url('/admin/user-management') ?>" 
+                       class="<?= (current_url() == site_url('/admin/user-management')) ? 'active' : '' ?>">👥 User Management</a>
+                <?php endif; ?>
+                <a href="<?= site_url('/settings') ?>" 
+                   class="<?= (current_url() == site_url('/settings')) ? 'active' : '' ?>">🔒 Change Password</a>
+            </div>
+        </div>
+        
         <a href="<?= site_url('/auth/logout') ?>" class="text-white">🚪 Logout</a>
     </div>
 </div>

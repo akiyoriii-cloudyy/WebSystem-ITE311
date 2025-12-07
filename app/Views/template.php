@@ -134,7 +134,6 @@
           <li class="nav-item"><a class="nav-link" href="<?= base_url('logout') ?>">Logout</a></li>
         <?php else: ?>
           <li class="nav-item"><a class="nav-link <?= service('uri')->getSegment(1)=='login'?'active':'' ?>" href="<?= base_url('login') ?>">Login</a></li>
-          <li class="nav-item"><a class="nav-link <?= service('uri')->getSegment(1)=='register'?'active':'' ?>" href="<?= base_url('register') ?>">Register</a></li>
         <?php endif; ?>
       </ul>
     </div>

@@ -13,7 +13,7 @@
 
     <!-- ✅ Welcome Card -->
     <div class="welcome-card text-center mb-5">
-        <h2 class="fw-bold mb-2">Welcome, <?= esc($user_name ?? 'User') ?> 🎉</h2>
+        <h2 class="fw-bold mb-2">Welcome, <?= ucfirst(esc($user_role ?? 'User')) ?> User 🎉</h2>
         <p class="mb-0">Role: <strong><?= ucfirst(esc($user_role ?? '')) ?></strong></p>
     </div>
 

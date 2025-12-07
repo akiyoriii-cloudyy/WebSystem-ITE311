@@ -250,6 +250,27 @@ $(document).ready(function() {
             });
         }
     });
+
+    // Settings Menu Toggle
+    window.toggleSettingsMenu = function(event) {
+        event.preventDefault();
+        const submenu = document.getElementById('settingsSubmenu');
+        const toggle = event.currentTarget;
+        
+        if (submenu) {
+            submenu.classList.toggle('show');
+            toggle.classList.toggle('active');
+        }
+    };
+
+    // Auto-expand settings menu if on settings page
+    $(document).ready(function() {
+        const currentUrl = window.location.href;
+        if (currentUrl.includes('/settings') || currentUrl.includes('/user-management')) {
+            $('#settingsSubmenu').addClass('show');
+            $('.settings-toggle').addClass('active');
+        }
+    });
 });
 </script>
 

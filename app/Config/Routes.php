@@ -41,6 +41,10 @@ $routes->group('', ['filter' => 'roleauth'], function ($routes) {
 
     // ✅ Announcements (All logged-in users can view)
     $routes->get('announcements', 'Announcement::index');
+    
+    // ✅ Settings & Password Change (All logged-in users)
+    $routes->get('settings', 'Admin::settings');
+    $routes->post('change-password', 'Admin::changePassword');
 
     // --------------------
     // Admin Routes (admin/* prefix)
@@ -54,6 +58,8 @@ $routes->group('', ['filter' => 'roleauth'], function ($routes) {
         $routes->post('users/update-role', 'Admin::updateUserRole');
         $routes->get('users/delete/(:num)', 'Admin::deleteUser/$1');
         $routes->get('users/toggle-status/(:num)', 'Admin::toggleUserStatus/$1');
+        $routes->post('users/create', 'Admin::createUser');
+        $routes->get('user-management', 'Admin::userManagement');
         
         // Course Management
         $routes->get('courses', 'Admin::manageCourses');
@@ -110,7 +116,7 @@ $routes->group('', ['filter' => 'roleauth'], function ($routes) {
     // Course Enrollment (All roles can enroll - mainly for students)
     // --------------------
     $routes->post('course/enroll', 'Course::enroll');
-    
+
     // --------------------
     // Course Search (All logged-in users can search)
     // --------------------

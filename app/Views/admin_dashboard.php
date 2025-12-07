@@ -13,7 +13,7 @@
 
     <!-- ✅ Welcome Card -->
     <div class="welcome-card text-center mb-5">
-        <h2 class="fw-bold mb-2">Welcome, <?= esc($user_name ?? 'User') ?> 🎉</h2>
+        <h2 class="fw-bold mb-2">Welcome, <?= ucfirst(esc($user_role ?? 'User')) ?> User 🎉</h2>
         <p class="mb-0">Role: <strong><?= ucfirst(esc($user_role ?? '')) ?></strong></p>
     </div>
 
@@ -25,46 +25,6 @@
             <div class="col-md-3"><div class="card text-center p-3"><h6>Total Courses</h6><h3><?= esc($stats['total_courses'] ?? 0) ?></h3></div></div>
             <div class="col-md-3"><div class="card text-center p-3"><h6>Active Students</h6><h3><?= esc($stats['active_students'] ?? 0) ?></h3></div></div>
             <div class="col-md-3"><div class="card text-center p-3"><h6>Active Teachers</h6><h3><?= esc($stats['active_teachers'] ?? 0) ?></h3></div></div>
-        </div>
-
-        <div class="card mt-4">
-            <div class="card-header fw-bold">System Overview</div>
-            <div class="card-body">
-
-                <?php if (!empty($users)): ?>
-                    <table class="table table-bordered align-middle">
-                        <thead class="table-light">
-                            <tr>
-                                <th>Name</th>
-                                <th>Email</th>
-                                <th>Current Role</th>
-                                <th>Change Role</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($users as $u): ?>
-                                <tr>
-                                    <td><?= esc($u['name']) ?></td>
-                                    <td><?= esc($u['email']) ?></td>
-                                    <td><strong><?= ucfirst(esc($u['role'])) ?></strong></td>
-                                    <td>
-                                        <?php if (session()->get('user_id') != $u['id']): ?>
-                                            <select class="form-select form-select-sm role-select" data-user-id="<?= $u['id'] ?>" data-current-role="<?= esc($u['role']) ?>">
-                                                <option value="teacher" <?= $u['role'] === 'teacher' ? 'selected' : '' ?>>Teacher</option>
-                                                <option value="student" <?= $u['role'] === 'student' ? 'selected' : '' ?>>Student</option>
-                                            </select>
-                                        <?php else: ?>
-                                            <em class="text-muted">You</em>
-                                        <?php endif; ?>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                <?php else: ?>
-                    <p class="text-muted mb-0">No users found.</p>
-                <?php endif; ?>
-            </div>
         </div>
 
         <div class="card mt-4">
@@ -224,58 +184,6 @@
 
 <script>
 $(document).ready(function() {
-    // Role change handler
-    $('.role-select').change(function() {
-        const userId = $(this).data('user-id');
-        const newRole = $(this).val();
-        const selectElement = $(this);
-        const currentRole = selectElement.data('current-role');
-        
-        if (!confirm('Change this user\'s role to ' + newRole.charAt(0).toUpperCase() + newRole.slice(1) + '?')) {
-            // Revert to current role if cancelled
-            selectElement.val(currentRole);
-            return;
-        }
-        
-        $.ajax({
-            url: '<?= base_url('admin/users/update-role') ?>',
-            type: 'POST',
-            data: {
-                id: userId,
-                role: newRole,
-                '<?= csrf_token() ?>': '<?= csrf_hash() ?>'
-            },
-            dataType: 'json',
-            success: function(response) {
-                if (response.status === 'success') {
-                    // Update the Current Role column
-                    selectElement.closest('tr').find('td:eq(2) strong').text(newRole.charAt(0).toUpperCase() + newRole.slice(1));
-                    
-                    // Update the data attribute to new role for next change
-                    selectElement.data('current-role', newRole);
-                    
-                    // Show success message
-                    let alertHtml = '<div class="alert alert-success alert-dismissible fade show" role="alert">' +
-                        response.message +
-                        '<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>';
-                    $('.container .card').first().prepend(alertHtml);
-                    
-                    // Auto-dismiss after 3 seconds
-                    setTimeout(function() {
-                        $('.alert-success').fadeOut();
-                    }, 3000);
-                } else {
-                    alert('Error: ' + response.message);
-                    selectElement.val(currentRole); // Revert on error
-                }
-            },
-            error: function() {
-                alert('An error occurred while updating the role.');
-                selectElement.val(currentRole); // Revert on error
-            }
-        });
-    });
-    
     // Initialize enrolled courses set for quick lookup
     const enrolledCourseIds = new Set();
     $('#enrolledCourses li').each(function() {
