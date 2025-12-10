@@ -1,2 +1,4 @@
 writable/logs/
 *.log
+writable/logs/
+*.log
