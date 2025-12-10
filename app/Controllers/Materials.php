@@ -39,7 +39,7 @@ class Materials extends BaseController
             $rules = [
                 'file' => [
                     'label' => 'Material File',
-                    'rules' => 'uploaded[file]|max_size[file,51200]|ext_in[file,pdf,ppt,pptx,doc,docx,xls,xlsx,csv,zip,rar,7z,txt,jpg,jpeg,png]'
+                    'rules' => 'uploaded[file]|max_size[file,51200]|ext_in[file,pdf,ppt,pptx]'
                 ]
             ];
 

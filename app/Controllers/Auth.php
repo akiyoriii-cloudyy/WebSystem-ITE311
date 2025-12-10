@@ -7,6 +7,7 @@ use App\Models\AnnouncementModel;
 use App\Models\EnrollmentModel;
 use App\Models\MaterialModel;
 use App\Models\NotificationModel;
+use App\Models\OtpTokenModel;
 
 class Auth extends BaseController
 {
@@ -31,12 +32,67 @@ class Auth extends BaseController
 
         // ✅ Show login form if GET request
         if ($this->request->getMethod() === 'GET') {
+            // Check if OTP verification step
+            $otpStep = $session->get('otp_step');
+            $pendingUserId = $session->get('pending_user_id');
+            
+            if ($otpStep && $pendingUserId) {
+                return view('auth/otp_verify');
+            }
+            
             return view('auth/login');
         }
 
         // ✅ Process login POST
         if ($this->request->getMethod() === 'POST') {
+            $otpStep = $session->get('otp_step');
+            $pendingUserId = $session->get('pending_user_id');
 
+            // Step 2: Verify OTP
+            if ($otpStep && $pendingUserId) {
+                $otpCode = $this->request->getPost('otp_code');
+                
+                if (empty($otpCode)) {
+                    return redirect()->back()->with('error', 'OTP code is required.');
+                }
+
+                $otpModel = new OtpTokenModel();
+                if ($otpModel->verifyOtp($pendingUserId, $otpCode)) {
+                    // OTP verified, complete login
+                    $userModel = new UserModel();
+                    $user = $userModel->find($pendingUserId);
+
+                    if (!$user || (isset($user['status']) && $user['status'] !== 'active')) {
+                        $session->remove(['otp_step', 'pending_user_id']);
+                        return redirect()->to('/login')->with('error', 'Your account is not active. Please contact admin.');
+                    }
+
+                    // Set session
+                    $session->set([
+                        'user_id'   => $user['id'],
+                        'user_name' => $user['name'],
+                        'user_role' => strtolower($user['role']),
+                        'logged_in' => true,
+                    ]);
+
+                    // Clear OTP session
+                    $session->remove(['otp_step', 'pending_user_id']);
+
+                    // Redirect based on role
+                    $role = strtolower($user['role']);
+                    if ($role === 'admin') {
+                        return redirect()->to('/admin_dashboard')->with('success', 'Login successful!');
+                    } elseif ($role === 'teacher') {
+                        return redirect()->to('/teacher_dashboard')->with('success', 'Login successful!');
+                    } else {
+                        return redirect()->to('/dashboard')->with('success', 'Login successful!');
+                    }
+                } else {
+                    return redirect()->back()->with('error', 'Invalid or expired OTP code. Please try again.');
+                }
+            }
+
+            // Step 1: Verify credentials and send OTP
             // Validation
             if (!$this->validate([
                 'email'    => 'required|valid_email',
@@ -62,22 +118,102 @@ class Auth extends BaseController
                 return redirect()->back()->with('error', 'Your account is not active. Please contact admin.');
             }
 
-            // ✅ Set session
-            $session->set([
-                'user_id'   => $user['id'],
-                'user_name' => $user['name'],
-                'user_role' => strtolower($user['role']),
-                'logged_in' => true,
-            ]);
+            // Generate and send OTP
+            try {
+                $otpModel = new OtpTokenModel();
+                $otpCode = $otpModel->generateOtp($user['id'], $user['email']);
 
-            // ✅ Redirect based on role
-            $role = strtolower($user['role']);
-            if ($role === 'admin') {
-                return redirect()->to('/admin_dashboard');
-            } elseif ($role === 'teacher') {
-                return redirect()->to('/teacher_dashboard');
-            } else {
-                return redirect()->to('/dashboard');
+                // Development mode: If OTP generation fails, allow direct login (remove in production)
+                $devMode = (ENVIRONMENT === 'development');
+                
+                if ($otpCode) {
+                    // For development: Display OTP on screen if email fails
+                    // In production, remove this and only use email
+                    $emailService = \Config\Services::email();
+                    $emailService->setFrom('noreply@lms.local', 'LMS System');
+                    $emailService->setTo($user['email']);
+                    $emailService->setSubject('Your Login OTP Code');
+                    $emailService->setMessage("Your OTP code is: {$otpCode}\n\nThis code will expire in 10 minutes.\n\nIf you did not request this code, please ignore this email.");
+                    
+                    $emailSent = false;
+                    try {
+                        $emailSent = $emailService->send();
+                    } catch (\Exception $e) {
+                        log_message('error', 'Email send error: ' . $e->getMessage());
+                    }
+                    
+                    // Set OTP verification step
+                    $session->set([
+                        'otp_step'      => true,
+                        'pending_user_id' => $user['id'],
+                    ]);
+                    
+                    // Always proceed to OTP verification step
+                    // Store OTP in session in case email fails
+                    $session->set('display_otp', $otpCode);
+                    
+                    if ($emailSent) {
+                        return redirect()->to('/login')->with('success', 'OTP code has been sent to your email. Please check and enter the code.');
+                    } else {
+                        // If email fails, show OTP on screen for development/testing
+                        log_message('warning', 'Email sending failed. OTP: ' . $otpCode);
+                        return redirect()->to('/login')->with('warning', 'Email not configured. Your OTP code is: <strong style="font-size: 1.2em; color: #198754;">' . $otpCode . '</strong> - Please enter this code to continue.');
+                    }
+                } else {
+                    // If OTP generation fails and we're in development mode, allow direct login
+                    if ($devMode) {
+                        log_message('warning', 'OTP generation failed in development mode. Allowing direct login.');
+                        // Set session directly
+                        $session->set([
+                            'user_id'   => $user['id'],
+                            'user_name' => $user['name'],
+                            'user_role' => strtolower($user['role']),
+                            'logged_in' => true,
+                        ]);
+                        
+                        // Redirect based on role
+                        $role = strtolower($user['role']);
+                        if ($role === 'admin') {
+                            return redirect()->to('/admin_dashboard')->with('warning', 'Logged in (OTP bypassed in development mode)');
+                        } elseif ($role === 'teacher') {
+                            return redirect()->to('/teacher_dashboard')->with('warning', 'Logged in (OTP bypassed in development mode)');
+                        } else {
+                            return redirect()->to('/dashboard')->with('warning', 'Logged in (OTP bypassed in development mode)');
+                        }
+                    }
+                    
+                    $errors = $otpModel->errors();
+                    log_message('error', 'OTP generation failed. Errors: ' . json_encode($errors));
+                    $db = \Config\Database::connect();
+                    $dbError = $db->error();
+                    $errorMsg = !empty($dbError) ? json_encode($dbError) : (empty($errors) ? 'Unknown error' : implode(', ', $errors));
+                    return redirect()->back()->with('error', 'Failed to generate OTP. Please try again. Error: ' . $errorMsg);
+                }
+            } catch (\Exception $e) {
+                log_message('error', 'OTP generation exception: ' . $e->getMessage());
+                log_message('error', 'Stack trace: ' . $e->getTraceAsString());
+                
+                // Development mode: Allow direct login if OTP fails
+                if (ENVIRONMENT === 'development') {
+                    log_message('warning', 'OTP exception in development mode. Allowing direct login.');
+                    $session->set([
+                        'user_id'   => $user['id'],
+                        'user_name' => $user['name'],
+                        'user_role' => strtolower($user['role']),
+                        'logged_in' => true,
+                    ]);
+                    
+                    $role = strtolower($user['role']);
+                    if ($role === 'admin') {
+                        return redirect()->to('/admin_dashboard')->with('warning', 'Logged in (OTP exception bypassed in development mode)');
+                    } elseif ($role === 'teacher') {
+                        return redirect()->to('/teacher_dashboard')->with('warning', 'Logged in (OTP exception bypassed in development mode)');
+                    } else {
+                        return redirect()->to('/dashboard')->with('warning', 'Logged in (OTP exception bypassed in development mode)');
+                    }
+                }
+                
+                return redirect()->back()->with('error', 'Failed to generate OTP. Please try again. Error: ' . $e->getMessage());
             }
         }
     }
@@ -232,10 +368,47 @@ class Auth extends BaseController
             // Check if courses table exists
             $courses = [];
             if ($db->query("SHOW TABLES LIKE 'courses'")->getNumRows() > 0) {
-                $courses = $db->table('courses')->get()->getResultArray();
+                try {
+                    $result = $db->table('courses')
+                        ->select('courses.*, users.name as instructor_name')
+                        ->join('users', 'courses.instructor_id = users.id', 'left')
+                        ->orderBy('courses.created_at', 'DESC')
+                        ->get();
+                    
+                    if ($result !== false && is_object($result)) {
+                        $courses = $result->getResultArray();
+                    } else {
+                        // If query failed, get courses without join
+                        $result = $db->table('courses')
+                            ->orderBy('created_at', 'DESC')
+                            ->get();
+                        if ($result !== false && is_object($result)) {
+                            $courses = $result->getResultArray();
+                        }
+                    }
+                } catch (\Exception $e) {
+                    // If join fails, get courses without join
+                    try {
+                        $result = $db->table('courses')
+                            ->orderBy('created_at', 'DESC')
+                            ->get();
+                        if ($result !== false && is_object($result)) {
+                            $courses = $result->getResultArray();
+                        }
+                    } catch (\Exception $e2) {
+                        $courses = [];
+                        log_message('error', 'Failed to fetch admin courses: ' . $e2->getMessage());
+                    }
+                }
             }
             
             $announcements = $announcementModel->orderBy('created_at', 'DESC')->findAll();
+
+            // Get enrollment statistics
+            $totalEnrollments = 0;
+            if ($db->query("SHOW TABLES LIKE 'enrollments'")->getNumRows() > 0) {
+                $totalEnrollments = $db->table('enrollments')->countAllResults();
+            }
 
             $data = [
                 'title'         => 'Admin Dashboard',
@@ -250,6 +423,7 @@ class Auth extends BaseController
                     'total_courses'   => count($courses),
                     'active_students' => $userModel->where('role', 'student')->countAllResults(),
                     'active_teachers' => $userModel->where('role', 'teacher')->countAllResults(),
+                    'total_enrollments' => $totalEnrollments,
                 ]
             ];
 
@@ -262,7 +436,104 @@ class Auth extends BaseController
             // Check if courses table exists
             $courses = [];
             if ($db->query("SHOW TABLES LIKE 'courses'")->getNumRows() > 0) {
-                $courses = $db->table('courses')->where('instructor_id', $userId)->get()->getResultArray();
+                // First, try to get courses with joins
+                $coursesQuery = $db->table('courses')
+                    ->select('courses.*')
+                    ->where('courses.instructor_id', $userId)
+                    ->orderBy('courses.created_at', 'DESC');
+                
+                // Try to add joins if tables exist
+                try {
+                    if ($db->query("SHOW TABLES LIKE 'acad_years'")->getNumRows() > 0) {
+                        $coursesQuery->select('acad_years.acad_year as acad_year', false);
+                        $coursesQuery->join('acad_years', 'courses.acad_year_id = acad_years.id', 'left');
+                    }
+                    if ($db->query("SHOW TABLES LIKE 'semesters'")->getNumRows() > 0) {
+                        $coursesQuery->select('semesters.semester as semester_name', false);
+                        $coursesQuery->join('semesters', 'courses.semester_id = semesters.id', 'left');
+                    }
+                    if ($db->query("SHOW TABLES LIKE 'terms'")->getNumRows() > 0) {
+                        $coursesQuery->select('terms.term as term_name', false);
+                        $coursesQuery->join('terms', 'courses.term_id = terms.id', 'left');
+                    }
+                } catch (\Exception $e) {
+                    log_message('error', 'Failed to join academic tables: ' . $e->getMessage());
+                    // Ignore join errors, continue with basic query
+                }
+                
+                // Execute query and check result
+                try {
+                    $result = $coursesQuery->get();
+                    if ($result !== false && is_object($result)) {
+                        $courses = $result->getResultArray();
+                    } else {
+                        // Query failed, get courses without joins
+                        $result = $db->table('courses')
+                            ->where('instructor_id', $userId)
+                            ->orderBy('created_at', 'DESC')
+                            ->get();
+                        if ($result !== false && is_object($result)) {
+                            $courses = $result->getResultArray();
+                        } else {
+                            $courses = [];
+                        }
+                    }
+                } catch (\Exception $e) {
+                    // If query fails, get courses without joins
+                    try {
+                        $result = $db->table('courses')
+                            ->where('instructor_id', $userId)
+                            ->orderBy('created_at', 'DESC')
+                            ->get();
+                        if ($result !== false && is_object($result)) {
+                            $courses = $result->getResultArray();
+                        } else {
+                            $courses = [];
+                        }
+                    } catch (\Exception $e2) {
+                        // If even basic query fails, set empty array
+                        $courses = [];
+                        log_message('error', 'Failed to fetch teacher courses: ' . $e2->getMessage());
+                    }
+                }
+                
+                // Get enrollment counts and assignment counts for each course
+                foreach ($courses as &$course) {
+                    // Student count
+                    try {
+                        if ($db->query("SHOW TABLES LIKE 'enrollments'")->getNumRows() > 0) {
+                            $course['student_count'] = $db->table('enrollments')
+                                ->where('course_id', $course['id'])
+                                ->countAllResults();
+                        } else {
+                            $course['student_count'] = 0;
+                        }
+                    } catch (\Exception $e) {
+                        $course['student_count'] = 0;
+                    }
+                    
+                    // Assignment count
+                    try {
+                        if ($db->query("SHOW TABLES LIKE 'assignments'")->getNumRows() > 0) {
+                            $course['assignment_count'] = $db->table('assignments')
+                                ->where('course_id', $course['id'])
+                                ->countAllResults();
+                        } else {
+                            $course['assignment_count'] = 0;
+                        }
+                    } catch (\Exception $e) {
+                        $course['assignment_count'] = 0;
+                    }
+                    
+                    // Ensure all fields exist with proper defaults
+                    if (!isset($course['course_number'])) {
+                        $course['course_number'] = $course['course_code'] ?? $course['code'] ?? '';
+                    }
+                    // Set academic structure fields - keep null if empty, view will handle display
+                    $course['acad_year'] = !empty($course['acad_year']) ? $course['acad_year'] : null;
+                    $course['semester_name'] = !empty($course['semester_name']) ? $course['semester_name'] : null;
+                    $course['term_name'] = !empty($course['term_name']) ? $course['term_name'] : null;
+                }
             }
             
             $announcements = $announcementModel->orderBy('created_at', 'DESC')->findAll();
@@ -274,7 +545,11 @@ class Auth extends BaseController
                 'announcements' => $announcements,
                 'user_name'     => $session->get('user_name'),
                 'user_role'     => $userRole,
-                'stats'         => ['my_courses' => count($courses)]
+                'stats'         => [
+                    'my_courses' => count($courses),
+                    'total_students' => array_sum(array_column($courses, 'student_count')),
+                    'total_assignments' => array_sum(array_column($courses, 'assignment_count'))
+                ]
             ];
 
             // ✅ FIXED: Correct view path
@@ -297,68 +572,197 @@ class Auth extends BaseController
                     $hasCodeColumn = false;
                 }
                 
-                // Build select string based on available columns
-                $selectFields = 'courses.id, courses.title, courses.description';
-                if ($hasCodeColumn) {
-                    $selectFields .= ', courses.code';
-                }
-                $selectFields .= ', users.name as instructor_name';
-                
-                // Build query
+                // Build query with all fields and joins
                 $query = $db->table('courses')
-                    ->select($selectFields)
+                    ->select('courses.id, courses.title, courses.description, courses.course_number, courses.instructor_id')
+                    ->select('users.name as instructor_name', false)
                     ->join('users', 'courses.instructor_id = users.id', 'left');
                 
-                $result = $query->get();
+                // Add academic structure joins
+                try {
+                    if ($db->query("SHOW TABLES LIKE 'acad_years'")->getNumRows() > 0) {
+                        $query->select('acad_years.acad_year as acad_year', false);
+                        $query->join('acad_years', 'courses.acad_year_id = acad_years.id', 'left');
+                    }
+                    if ($db->query("SHOW TABLES LIKE 'semesters'")->getNumRows() > 0) {
+                        $query->select('semesters.name as semester_name', false);
+                        $query->join('semesters', 'courses.semester_id = semesters.id', 'left');
+                    }
+                    if ($db->query("SHOW TABLES LIKE 'terms'")->getNumRows() > 0) {
+                        $query->select('terms.name as term_name', false);
+                        $query->join('terms', 'courses.term_id = terms.id', 'left');
+                    }
+                } catch (\Exception $e) {
+                    log_message('error', 'Failed to join academic tables for available courses: ' . $e->getMessage());
+                }
                 
-                // Check if query was successful
-                if ($result !== false) {
-                    $courses = $result->getResultArray();
-                    // Ensure code exists in array even if column doesn't exist
-                    foreach ($courses as &$course) {
-                        if (!isset($course['code'])) {
-                            $course['code'] = '';
+                $query->orderBy('courses.title', 'ASC');
+                
+                try {
+                    $result = $query->get();
+                    
+                    // Check if query was successful
+                    if ($result !== false && is_object($result)) {
+                        $courses = $result->getResultArray();
+                        // Ensure all fields exist with proper defaults
+                        foreach ($courses as &$course) {
+                            $course['code'] = $course['course_number'] ?? '';
+                            $course['course_number'] = $course['course_number'] ?? '';
+                            $course['instructor_name'] = !empty($course['instructor_name']) ? $course['instructor_name'] : 'N/A';
+                            $course['acad_year'] = !empty($course['acad_year']) ? $course['acad_year'] : null;
+                            $course['semester_name'] = !empty($course['semester_name']) ? $course['semester_name'] : null;
+                            $course['term_name'] = !empty($course['term_name']) ? $course['term_name'] : null;
+                            $course['description'] = $course['description'] ?? '';
                         }
-                        if (!isset($course['instructor_name'])) {
-                            $course['instructor_name'] = 'N/A';
+                    } else {
+                        // If join fails, try without join
+                        try {
+                            $result = $db->table('courses')
+                                ->select('courses.id, courses.title, courses.description')
+                                ->get();
+                            
+                            if ($result !== false && is_object($result)) {
+                                $courses = $result->getResultArray();
+                                foreach ($courses as &$course) {
+                                    $course['code'] = '';
+                                    $course['instructor_name'] = 'N/A';
+                                }
+                            } else {
+                                $courses = [];
+                            }
+                        } catch (\Exception $e) {
+                            // Query failed completely, courses will remain empty array
+                            $courses = [];
+                            log_message('error', 'Failed to fetch student courses: ' . $e->getMessage());
                         }
                     }
-                } else {
-                    // If join fails, try without join
+                } catch (\Exception $e) {
+                    // If query fails, try without join
                     try {
                         $result = $db->table('courses')
                             ->select('courses.id, courses.title, courses.description')
                             ->get();
                         
-                        if ($result !== false) {
+                        if ($result !== false && is_object($result)) {
                             $courses = $result->getResultArray();
                             foreach ($courses as &$course) {
                                 $course['code'] = '';
                                 $course['instructor_name'] = 'N/A';
                             }
+                        } else {
+                            $courses = [];
                         }
-                    } catch (\Exception $e) {
+                    } catch (\Exception $e2) {
                         // Query failed completely, courses will remain empty array
                         $courses = [];
+                        log_message('error', 'Failed to fetch student courses: ' . $e2->getMessage());
                     }
                 }
             }
             
-            // Check if enrollments table exists
+            // Get enrolled courses with academic structure and instructor info
             $enrolledCourses = [];
             if ($db->query("SHOW TABLES LIKE 'enrollments'")->getNumRows() > 0) {
-                $enrolledCourses = $enrollmentModel->select('courses.id, courses.title, courses.description')
-                    ->join('courses', 'enrollments.course_id = courses.id')
-                    ->where('enrollments.user_id', $userId)
-                    ->findAll();
+                try {
+                    $enrolledQuery = $db->table('enrollments')
+                        ->select('enrollments.*, courses.id as course_id, courses.title, courses.description, courses.course_number, courses.instructor_id, users.name as instructor_name')
+                        ->join('courses', 'enrollments.course_id = courses.id', 'left')
+                        ->join('users', 'courses.instructor_id = users.id', 'left')
+                        ->where('enrollments.user_id', $userId)
+                        ->orderBy('courses.title', 'ASC');
+                    
+                    // Add academic structure joins
+                    try {
+                        if ($db->query("SHOW TABLES LIKE 'acad_years'")->getNumRows() > 0) {
+                            $enrolledQuery->select('acad_years.acad_year as acad_year', false);
+                            $enrolledQuery->join('acad_years', 'courses.acad_year_id = acad_years.id', 'left');
+                        }
+                        if ($db->query("SHOW TABLES LIKE 'semesters'")->getNumRows() > 0) {
+                            $enrolledQuery->select('semesters.semester as semester_name', false);
+                            $enrolledQuery->join('semesters', 'courses.semester_id = semesters.id', 'left');
+                        }
+                        if ($db->query("SHOW TABLES LIKE 'terms'")->getNumRows() > 0) {
+                            $enrolledQuery->select('terms.term as term_name', false);
+                            $enrolledQuery->join('terms', 'courses.term_id = terms.id', 'left');
+                        }
+                    } catch (\Exception $e) {
+                        log_message('error', 'Failed to join academic tables for student: ' . $e->getMessage());
+                    }
+                    
+                    $result = $enrolledQuery->get();
+                    if ($result !== false && is_object($result)) {
+                        $enrolledCourses = $result->getResultArray();
+                        
+                        // Get assignment and quiz counts for each enrolled course
+                        foreach ($enrolledCourses as &$course) {
+                            $courseId = $course['course_id'];
+                            
+                            // Assignment count
+                            try {
+                                if ($db->query("SHOW TABLES LIKE 'assignments'")->getNumRows() > 0) {
+                                    $course['assignment_count'] = $db->table('assignments')
+                                        ->where('course_id', $courseId)
+                                        ->countAllResults();
+                                } else {
+                                    $course['assignment_count'] = 0;
+                                }
+                            } catch (\Exception $e) {
+                                $course['assignment_count'] = 0;
+                            }
+                            
+                            // Quiz count
+                            try {
+                                if ($db->query("SHOW TABLES LIKE 'quizzes'")->getNumRows() > 0) {
+                                    $course['quiz_count'] = $db->table('quizzes')
+                                        ->where('course_id', $courseId)
+                                        ->countAllResults();
+                                } else {
+                                    $course['quiz_count'] = 0;
+                                }
+                            } catch (\Exception $e) {
+                                $course['quiz_count'] = 0;
+                            }
+                            
+                            // Ensure all fields exist with proper defaults
+                            $course['acad_year'] = !empty($course['acad_year']) ? $course['acad_year'] : null;
+                            $course['semester_name'] = !empty($course['semester_name']) ? $course['semester_name'] : null;
+                            $course['term_name'] = !empty($course['term_name']) ? $course['term_name'] : null;
+                            $course['course_number'] = !empty($course['course_number']) ? $course['course_number'] : '';
+                            $course['instructor_name'] = !empty($course['instructor_name']) ? $course['instructor_name'] : 'N/A';
+                            $course['assignment_count'] = $course['assignment_count'] ?? 0;
+                            $course['quiz_count'] = $course['quiz_count'] ?? 0;
+                        }
+                    }
+                } catch (\Exception $e) {
+                    log_message('error', 'Failed to fetch enrolled courses: ' . $e->getMessage());
+                    // Fallback to simple query
+                    try {
+                        $enrolledCourses = $enrollmentModel->select('courses.id, courses.title, courses.description')
+                            ->join('courses', 'enrollments.course_id = courses.id')
+                            ->where('enrollments.user_id', $userId)
+                            ->findAll();
+                    } catch (\Exception $e2) {
+                        $enrolledCourses = [];
+                    }
+                }
             }
             
-            // Load materials per enrolled course
+            // Calculate statistics
+            $totalEnrolled = count($enrolledCourses);
+            $totalAssignments = !empty($enrolledCourses) ? array_sum(array_column($enrolledCourses, 'assignment_count')) : 0;
+            $totalQuizzes = !empty($enrolledCourses) ? array_sum(array_column($enrolledCourses, 'quiz_count')) : 0;
+            
+            // Load materials per enrolled course (optional, for future use)
             $materialsByCourse = [];
-            if (!empty($enrolledCourses)) {
-                $materialModel = new MaterialModel();
-                foreach ($enrolledCourses as $ec) {
-                    $materialsByCourse[$ec['id']] = $materialModel->getMaterialsByCourse($ec['id']);
+            if (!empty($enrolledCourses) && $db->query("SHOW TABLES LIKE 'materials'")->getNumRows() > 0) {
+                try {
+                    $materialModel = new \App\Models\MaterialModel();
+                    foreach ($enrolledCourses as $ec) {
+                        $materialsByCourse[$ec['course_id']] = $materialModel->getMaterialsByCourse($ec['course_id']);
+                    }
+                } catch (\Exception $e) {
+                    log_message('error', 'Failed to load materials: ' . $e->getMessage());
+                    $materialsByCourse = [];
                 }
             }
             
@@ -373,7 +777,11 @@ class Auth extends BaseController
                 'announcements'   => $announcements,
                 'user_name'       => $session->get('user_name'),
                 'user_role'       => $userRole,
-                'stats'           => ['my_courses' => count($enrolledCourses)]
+                'stats'           => [
+                    'my_courses' => $totalEnrolled,
+                    'total_assignments' => $totalAssignments,
+                    'total_quizzes' => $totalQuizzes
+                ]
             ];
 
             return view('/dashboard', $data);

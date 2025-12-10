@@ -428,14 +428,17 @@
         <?php if ($user_role === 'admin'): ?>
             <a href="<?= site_url('/admin/users') ?>">👥 Manage Users</a>
             <a href="<?= site_url('/admin/courses') ?>">📘 Manage Courses</a>
+            <a href="<?= site_url('/admin/academic/years') ?>">📅 Academic Structure</a>
+            <a href="<?= site_url('/admin/departments') ?>">🏢 Departments & Programs</a>
+            <a href="<?= site_url('/admin/enrollments') ?>">📝 Enrollments</a>
             <a href="<?= site_url('/courses') ?>">🔍 Browse & Search Courses</a>
-            <a href="<?= site_url('/admin/reports') ?>">📑 Reports</a>
         <?php elseif ($user_role === 'teacher'): ?>
             
             <a href="<?= site_url('/teacher/courses') ?>">📘 My Courses</a>
             <a href="<?= site_url('/courses') ?>">🔍 Browse & Search Courses</a>
             <a href="<?= site_url('/teacher/students') ?>">👨‍🎓 My Students</a>
             <a href="<?= site_url('/teacher/deadlines') ?>">⏰ Deadlines</a>
+            <a href="<?= site_url('/teacher/assignments') ?>">📋 Assignments</a>
         <?php elseif ($user_role === 'student'): ?>
 
             <a href="<?= site_url('/student/enrollments') ?>">📚 My Enrollments</a>

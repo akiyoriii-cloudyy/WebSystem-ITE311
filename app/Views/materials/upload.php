@@ -20,8 +20,8 @@ $backUrl = base_url($role === 'admin' ? 'admin/manage-courses' : 'teacher/course
     <?= csrf_field() ?>
     <div class="mb-3">
       <label for="file" class="form-label">Choose file</label>
-      <input type="file" class="form-control" id="file" name="file" accept=".pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx,.csv,.zip,.rar,.7z,.txt,.jpg,.jpeg,.png" required>
-      <div class="form-text">Allowed: pdf, ppt, pptx, doc, docx, xls, xlsx, csv, zip, rar, 7z, txt, jpg, jpeg, png. Max 50MB.</div>
+      <input type="file" class="form-control" id="file" name="file" accept=".pdf,.ppt,.pptx" required>
+      <div class="form-text">Allowed: PDF and PPT files only (pdf, ppt, pptx). Max 50MB.</div>
     </div>
     <button type="submit" class="btn btn-primary">Upload</button>
     <a href="<?= $backUrl ?>" class="btn btn-secondary">Back to Courses</a>

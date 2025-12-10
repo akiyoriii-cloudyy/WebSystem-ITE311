@@ -22,9 +22,15 @@
                     
                     <form id="createUserForm">
                         <?= csrf_field() ?>
+                        <input type="hidden" name="throughly_token" id="throughly_token" value="">
                         <div class="mb-3">
                             <label for="name" class="form-label">Name <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="name" name="name" required>
+                            <input type="text" 
+                                   class="form-control" 
+                                   id="name" 
+                                   name="name" 
+                                   required>
+                            <small class="form-text text-muted">Enter a proper name. Security characters are not allowed.</small>
                         </div>
                         
                         <div class="mb-3">
@@ -141,6 +147,73 @@ $(document).ready(function() {
         // Use auto-generated password
         const autoPassword = AUTO_PASSWORD;
         
+        // Validate name before submission - reject invalid characters and throughly application patterns
+        let name = $('#name').val().trim();
+        
+        // Only allow: letters, numbers, spaces, hyphens, apostrophes, periods, commas
+        // Reject: brackets [], semicolons ;, and other special characters
+        const namePattern = /^[\p{L}\p{N}\s\-\'\.\,]+$/u;
+        if (!namePattern.test(name)) {
+            $btn.prop('disabled', false).html(originalText);
+            let alertHtml = '<div class="alert alert-danger alert-dismissible fade show" role="alert">' +
+                'Invalid characters detected in name. Only letters, numbers, spaces, hyphens, apostrophes, periods, and commas are allowed.' +
+                '<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>';
+            $('#createUserAlert').html(alertHtml);
+            $('#name').focus().select();
+            return false;
+        }
+        
+        // Also check for specific "throughly application" security patterns
+        const throughlyPatterns = [
+            'ˈthȯr-',
+            'ˈthə-(ˌ)rō',
+            'ˈthȯr-;',
+            'θʌrəθɜːroʊ',
+            '=+[\';/.,.\'',
+            '[][];;;;[[',
+            '[[',
+            ']]',
+            ';;'
+        ];
+        let hasInvalidChars = false;
+        
+        // Check if name contains throughly application patterns (case-insensitive)
+        const nameLower = name.toLowerCase();
+        for (let i = 0; i < throughlyPatterns.length; i++) {
+            const patternLower = throughlyPatterns[i].toLowerCase();
+            if (nameLower.indexOf(patternLower) !== -1) {
+                hasInvalidChars = true;
+                break;
+            }
+        }
+        
+        if (hasInvalidChars) {
+            $btn.prop('disabled', false).html(originalText);
+            let alertHtml = '<div class="alert alert-danger alert-dismissible fade show" role="alert">' +
+                'Invalid characters detected in name. Security characters are not allowed.' +
+                '<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>';
+            $('#createUserAlert').html(alertHtml);
+            $('#name').focus().select();
+            return false;
+        }
+        
+        // Get fresh throughly token before submission if not already set
+        let throughlyToken = $('#throughly_token').val();
+        if (!throughlyToken) {
+            $.ajax({
+                url: '<?= base_url('admin/users/get-token') ?>',
+                type: 'GET',
+                dataType: 'json',
+                async: false,
+                success: function(response) {
+                    if (response.status === 'success' && response.throughly_token) {
+                        throughlyToken = response.throughly_token;
+                        $('#throughly_token').val(throughlyToken);
+                    }
+                }
+            });
+        }
+        
         $.ajax({
             url: '<?= base_url('admin/users/create') ?>',
             type: 'POST',
@@ -149,11 +222,12 @@ $(document).ready(function() {
                 'X-CSRF-TOKEN': csrfToken
             },
             data: {
-                name: $('#name').val(),
+                name: name, // Already validated and sanitized above
                 email: $('#email').val(),
                 password: autoPassword, // Auto-generated password
                 role: $('#role').val(),
                 status: $('#status').val(),
+                throughly_token: throughlyToken,
                 [csrfTokenName]: csrfToken
             },
             dataType: 'json',

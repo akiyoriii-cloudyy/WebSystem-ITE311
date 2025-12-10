@@ -69,60 +69,118 @@
 
     <?php elseif ($user_role === 'teacher'): ?>
         <!-- TEACHER SECTION -->
+        <!-- Statistics Cards -->
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <div class="card text-center p-3">
+                    <h6>My Courses</h6>
+                    <h3><?= esc($stats['my_courses'] ?? 0) ?></h3>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card text-center p-3">
+                    <h6>Total Students</h6>
+                    <h3><?= esc($stats['total_students'] ?? 0) ?></h3>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card text-center p-3">
+                    <h6>Total Assignments</h6>
+                    <h3><?= esc($stats['total_assignments'] ?? 0) ?></h3>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Quick Actions</h5>
+                        <a href="<?= site_url('teacher/courses') ?>" class="btn btn-primary btn-sm me-2">Manage Courses</a>
+                        <a href="<?= site_url('teacher/announcements') ?>" class="btn btn-info btn-sm me-2">Announcements</a>
+                        <a href="<?= site_url('teacher/quizzes') ?>" class="btn btn-success btn-sm me-2">Quizzes & Submissions</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- My Courses Table -->
         <div class="card mt-4">
             <div class="card-header fw-bold">My Courses & Enrolled Students</div>
             <div class="card-body">
                 <?php if (!empty($courses)): ?>
-                    <table class="table table-bordered align-middle">
-                        <thead class="table-light">
-                            <tr>
-                                <th>#</th>
-                                <th>Course Name</th>
-                                <th>Students Enrolled</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php 
-                            $db = \Config\Database::connect();
-                            foreach ($courses as $index => $c):
-                                $courseId = $c['id'];
-                                $students = $db->table('enrollments')
-                                    ->select('users.id, users.name, users.email')
-                                    ->join('users', 'users.id = enrollments.user_id')
-                                    ->where('enrollments.course_id', $courseId)
-                                    ->get()->getResultArray();
-                            ?>
+                    <div class="table-responsive">
+                        <table class="table table-bordered align-middle">
+                            <thead class="table-light">
                                 <tr>
-                                    <td><?= $index + 1 ?></td>
-                                    <td><?= esc($c['title'] ?? $c['name']) ?></td>
-                                    <td>
-                                        <?php if (!empty($students)): ?>
-                                            <span class="text-success"><?= count($students) ?> student(s)</span>
-                                        <?php else: ?>
-                                            <span class="text-muted">No students enrolled</span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td>
-                                        <a class="btn btn-sm btn-success" href="<?= base_url('teacher/course/' . $courseId . '/upload') ?>">Upload Materials</a>
-                                        <?php if (!empty($students)): ?>
-                                            <button 
-                                                class="btn btn-sm btn-primary view-students-btn" 
-                                                data-students='<?= json_encode($students) ?>'
-                                                data-course-title="<?= esc($c['title'] ?? $c['name']) ?>">
-                                                View Students
-                                            </button>
-                                        <?php else: ?>
-                                            <button class="btn btn-sm btn-secondary" disabled>No Students</button>
-                                        <?php endif; ?>
-                                    </td>
+                                    <th>#</th>
+                                    <th>Course Code</th>
+                                    <th>Course Name</th>
+                                    <th>Academic Year</th>
+                                    <th>Semester</th>
+                                    <th>Term</th>
+                                    <th>Students</th>
+                                    <th>Assignments</th>
+                                    <th>Actions</th>
                                 </tr>
-                                
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                <?php 
+                                $db = \Config\Database::connect();
+                                foreach ($courses as $index => $c):
+                                    $courseId = $c['id'];
+                                    $students = $db->table('enrollments')
+                                        ->select('users.id, users.name, users.email')
+                                        ->join('users', 'users.id = enrollments.user_id')
+                                        ->where('enrollments.course_id', $courseId)
+                                        ->get()->getResultArray();
+                                ?>
+                                    <tr>
+                                        <td><?= $index + 1 ?></td>
+                                        <td>
+                                            <?php if (!empty($c['course_number'])): ?>
+                                                <span class="badge bg-secondary"><?= esc($c['course_number']) ?></span>
+                                            <?php else: ?>
+                                                <span class="text-muted">-</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td><?= esc($c['title'] ?? $c['name']) ?></td>
+                                        <td><?= !empty($c['acad_year']) ? esc($c['acad_year']) : '<span class="text-muted">N/A</span>' ?></td>
+                                        <td><?= !empty($c['semester_name']) ? esc($c['semester_name']) : '<span class="text-muted">N/A</span>' ?></td>
+                                        <td><?= !empty($c['term_name']) ? esc($c['term_name']) : '<span class="text-muted">N/A</span>' ?></td>
+                                        <td>
+                                            <?php if (!empty($students)): ?>
+                                                <span class="text-success"><?= count($students) ?> student(s)</span>
+                                            <?php else: ?>
+                                                <span class="text-muted">0 students</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-info"><?= esc($c['assignment_count'] ?? 0) ?></span>
+                                        </td>
+                                        <td>
+                                            <div class="btn-group" role="group">
+                                                <a class="btn btn-sm btn-primary" href="<?= site_url('teacher/courses/' . $courseId . '/enroll-students') ?>">Enroll Students</a>
+                                                <a class="btn btn-sm btn-success" href="<?= site_url('teacher/courses/' . $courseId . '/assignments') ?>">Assignments</a>
+                                                <?php if (!empty($students)): ?>
+                                                    <button 
+                                                        class="btn btn-sm btn-info view-students-btn" 
+                                                        data-students='<?= json_encode($students) ?>'
+                                                        data-course-title="<?= esc($c['title'] ?? $c['name']) ?>">
+                                                        View Students
+                                                    </button>
+                                                <?php endif; ?>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
                 <?php else: ?>
-                    <p class="text-muted mb-0">No courses assigned.</p>
+                    <p class="text-muted mb-0">No courses assigned. Please contact admin to assign courses to you.</p>
                 <?php endif; ?>
             </div>
         </div>

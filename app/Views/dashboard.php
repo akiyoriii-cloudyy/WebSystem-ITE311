@@ -144,20 +144,107 @@
 
     <?php elseif ($user_role === 'student'): ?>
         <!-- STUDENT SECTION -->
+        <!-- Statistics Cards -->
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <div class="card text-center p-3">
+                    <h6>My Enrolled Courses</h6>
+                    <h3><?= esc($stats['my_courses'] ?? 0) ?></h3>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card text-center p-3">
+                    <h6>Total Assignments</h6>
+                    <h3><?= esc($stats['total_assignments'] ?? 0) ?></h3>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card text-center p-3">
+                    <h6>Total Quizzes</h6>
+                    <h3><?= esc($stats['total_quizzes'] ?? 0) ?></h3>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Quick Actions</h5>
+                        <a href="<?= site_url('courses') ?>" class="btn btn-primary btn-sm me-2">Browse Courses</a>
+                        <a href="<?= site_url('announcements') ?>" class="btn btn-info btn-sm me-2">Announcements</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- My Enrolled Courses Table -->
         <div class="card mb-4">
-            <div class="card-header bg-success text-white">My Enrolled Courses</div>
-            <ul class="list-group list-group-flush" id="enrolledCourses">
-                <?php if (!empty($enrolledCourses)): ?>
-                    <?php foreach ($enrolledCourses as $course): ?>
-                        <li class="list-group-item d-flex justify-content-between align-items-center">
-                            <span><?= esc($course['title'] ?? $course['name']) ?></span>
-                            <a class="btn btn-sm btn-primary" href="<?= base_url('materials/course/' . (int)$course['id']) ?>">View Materials</a>
-                        </li>
-                    <?php endforeach; ?>
-                <?php else: ?>
-                    <li class="list-group-item text-muted no-enrollment-msg">You are not enrolled in any course yet.</li>
-                <?php endif; ?>
-            </ul>
+            <div class="card-header bg-success text-white fw-bold">My Enrolled Courses</div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-bordered align-middle" id="enrolledCoursesTable">
+                        <thead class="table-light">
+                            <tr>
+                                <th>#</th>
+                                <th>Course Code</th>
+                                <th>Course Name</th>
+                                <th>Instructor</th>
+                                <th>Academic Year</th>
+                                <th>Semester</th>
+                                <th>Term</th>
+                                <th>Assignments</th>
+                                <th>Quizzes</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if (!empty($enrolledCourses)): ?>
+                                <?php foreach ($enrolledCourses as $index => $course): ?>
+                                    <tr>
+                                        <td><?= $index + 1 ?></td>
+                                        <td>
+                                            <?php if (!empty($course['course_number'])): ?>
+                                                <span class="badge bg-secondary"><?= esc($course['course_number']) ?></span>
+                                            <?php else: ?>
+                                                <span class="text-muted">-</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td><?= esc($course['title'] ?? $course['name']) ?></td>
+                                        <td><?= esc($course['instructor_name'] ?? 'N/A') ?></td>
+                                        <td><?= esc($course['acad_year'] ?? 'N/A') ?></td>
+                                        <td><?= esc($course['semester_name'] ?? 'N/A') ?></td>
+                                        <td><?= esc($course['term_name'] ?? 'N/A') ?></td>
+                                        <td>
+                                            <span class="badge bg-info"><?= esc($course['assignment_count'] ?? 0) ?></span>
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-success"><?= esc($course['quiz_count'] ?? 0) ?></span>
+                                        </td>
+                                        <td>
+                                            <div class="btn-group" role="group">
+                                                <a class="btn btn-sm btn-primary" href="<?= base_url('materials/course/' . (int)$course['course_id']) ?>">
+                                                    <i class="bi bi-file-earmark"></i> Materials
+                                                </a>
+                                                <a class="btn btn-sm btn-success" href="<?= site_url('student/quiz/course/' . (int)$course['course_id']) ?>">
+                                                    <i class="bi bi-question-circle"></i> Quizzes
+                                                </a>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php else: ?>
+                                <tr>
+                                    <td colspan="10" class="text-center text-muted">
+                                        <p class="mb-0">You are not enrolled in any course yet. Browse available courses below to enroll.</p>
+                                    </td>
+                                </tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
 
         <!-- ✅ Search Form -->
@@ -200,51 +287,76 @@
         </div>
 
         <div class="card mb-4">
-            <div class="card-header bg-primary text-white">Available Courses</div>
-            <ul class="list-group list-group-flush" id="availableCoursesList">
+            <div class="card-header bg-primary text-white fw-bold">Available Courses</div>
+            <div class="card-body">
                 <?php if (!empty($courses)): ?>
-                    <?php foreach ($courses as $course): ?>
-                        <?php
-                            $isEnrolled = false;
-                            foreach ($enrolledCourses as $en) {
-                                if ($en['id'] == $course['id']) {
-                                    $isEnrolled = true;
-                                    break;
+                    <div class="table-responsive">
+                        <table class="table table-bordered align-middle" id="availableCoursesTable">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>#</th>
+                                    <th>Course Code</th>
+                                    <th>Course Name</th>
+                                    <th>Instructor</th>
+                                    <th>Academic Year</th>
+                                    <th>Semester</th>
+                                    <th>Term</th>
+                                    <th>Description</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php 
+                                $enrolledCourseIds = [];
+                                if (!empty($enrolledCourses)) {
+                                    $enrolledCourseIds = array_column($enrolledCourses, 'course_id');
+                                    // Also check by 'id' if course_id doesn't exist
+                                    if (empty($enrolledCourseIds)) {
+                                        $enrolledCourseIds = array_column($enrolledCourses, 'id');
+                                    }
                                 }
-                            }
-                            // Get course code if available
-                            $courseCode = $course['code'] ?? '';
-                            $courseDescription = $course['description'] ?? '';
-                        ?>
-                        <li class="list-group-item course-item d-flex justify-content-between align-items-center"
-                            data-course-title="<?= esc(strtolower($course['title'] ?? $course['name'] ?? '')) ?>"
-                            data-course-description="<?= esc(strtolower($courseDescription)) ?>"
-                            data-course-code="<?= esc(strtolower($courseCode)) ?>">
-                            <div class="flex-grow-1">
-                                <span class="course-title fw-bold">
-                                    <?= esc($course['title'] ?? $course['name']) ?>
-                                    <?php if (!empty($courseCode)): ?>
-                                        <span class="badge bg-secondary ms-2"><?= esc($courseCode) ?></span>
-                                    <?php endif; ?>
-                                </span>
-                                <?php if (!empty($courseDescription)): ?>
-                                    <br><small class="text-muted course-description">
-                                        <?= esc(substr($courseDescription, 0, 100)) ?>
-                                        <?= strlen($courseDescription) > 100 ? '...' : '' ?>
-                                    </small>
-                                <?php endif; ?>
-                            </div>
-                            <?php if ($isEnrolled): ?>
-                                <button class="btn btn-sm btn-secondary ms-3" disabled>Enrolled</button>
-                            <?php else: ?>
-                                <button class="btn btn-sm btn-success enroll-btn ms-3" data-course-id="<?= esc($course['id']) ?>">Enroll</button>
-                            <?php endif; ?>
-                        </li>
-                    <?php endforeach; ?>
+                                foreach ($courses as $index => $course): 
+                                    $isEnrolled = in_array($course['id'], $enrolledCourseIds);
+                                ?>
+                                    <tr class="course-item"
+                                        data-course-title="<?= esc(strtolower($course['title'] ?? $course['name'] ?? '')) ?>"
+                                        data-course-description="<?= esc(strtolower($course['description'] ?? '')) ?>"
+                                        data-course-code="<?= esc(strtolower($course['course_number'] ?? $course['code'] ?? '')) ?>">
+                                        <td><?= $index + 1 ?></td>
+                                        <td>
+                                            <?php if (!empty($course['course_number']) || !empty($course['code'])): ?>
+                                                <span class="badge bg-secondary"><?= esc($course['course_number'] ?? $course['code']) ?></span>
+                                            <?php else: ?>
+                                                <span class="text-muted">-</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td><strong><?= esc($course['title'] ?? $course['name']) ?></strong></td>
+                                        <td><?= esc($course['instructor_name'] ?? 'N/A') ?></td>
+                                        <td><?= esc($course['acad_year'] ?? 'N/A') ?></td>
+                                        <td><?= esc($course['semester_name'] ?? 'N/A') ?></td>
+                                        <td><?= esc($course['term_name'] ?? 'N/A') ?></td>
+                                        <td>
+                                            <small class="text-muted">
+                                                <?= esc(substr($course['description'] ?? '', 0, 80)) ?>
+                                                <?= strlen($course['description'] ?? '') > 80 ? '...' : '' ?>
+                                            </small>
+                                        </td>
+                                        <td>
+                                            <?php if ($isEnrolled): ?>
+                                                <button class="btn btn-sm btn-secondary" disabled>Enrolled</button>
+                                            <?php else: ?>
+                                                <button class="btn btn-sm btn-success enroll-btn" data-course-id="<?= esc($course['id']) ?>">Enroll</button>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
                 <?php else: ?>
-                    <li class="list-group-item text-muted" id="noCoursesMessage">No available courses found.</li>
+                    <p class="text-muted mb-0" id="noCoursesMessage">No available courses found.</p>
                 <?php endif; ?>
-            </ul>
+            </div>
             
             <!-- ✅ Empty Search Results Message -->
             <div id="noSearchResults" class="alert alert-warning m-3" style="display: none;">
@@ -305,42 +417,43 @@ $(document).ready(function() {
                     $('#searchInfo').show();
 
                     // Clear existing courses
-                    $('#availableCoursesList').empty();
+                    $('#availableCoursesTable tbody').empty();
                     $('#noCoursesMessage').hide();
                     $('#noSearchResults').hide();
 
                     if (response.results.length > 0) {
-                        // Display search results
+                        // Display search results as table rows
                         let html = '';
-                        response.results.forEach(function(course) {
+                        response.results.forEach(function(course, index) {
                             const isEnrolled = course.is_enrolled;
                             let actionButton = '';
                             
                             if (isEnrolled) {
-                                actionButton = '<button class="btn btn-sm btn-secondary ms-3" disabled>Enrolled</button>';
+                                actionButton = '<button class="btn btn-sm btn-secondary" disabled>Enrolled</button>';
                             } else {
-                                actionButton = '<button class="btn btn-sm btn-success enroll-btn ms-3" data-course-id="' + course.id + '">Enroll</button>';
+                                actionButton = '<button class="btn btn-sm btn-success enroll-btn" data-course-id="' + course.id + '">Enroll</button>';
                             }
 
-                            html += '<li class="list-group-item course-item d-flex justify-content-between align-items-center" ' +
+                            html += '<tr class="course-item" ' +
                                 'data-course-title="' + (course.title || '').toLowerCase() + '" ' +
                                 'data-course-description="' + (course.description || '').toLowerCase() + '" ' +
-                                'data-course-code="' + (course.code || '').toLowerCase() + '">' +
-                                '<div class="flex-grow-1">' +
-                                '<span class="course-title fw-bold">' + 
-                                (course.title || 'Untitled Course') +
-                                (course.code ? ' <span class="badge bg-secondary ms-2">' + course.code + '</span>' : '') +
-                                '</span>' +
-                                (course.description ? '<br><small class="text-muted course-description">' + 
-                                (course.description.length > 100 ? course.description.substring(0, 100) + '...' : course.description) + 
-                                '</small>' : '') +
-                                '</div>' +
-                                actionButton +
-                                '</li>';
+                                'data-course-code="' + ((course.course_number || course.code) || '').toLowerCase() + '">' +
+                                '<td>' + (index + 1) + '</td>' +
+                                '<td>' + (course.course_number || course.code ? '<span class="badge bg-secondary">' + (course.course_number || course.code) + '</span>' : '<span class="text-muted">-</span>') + '</td>' +
+                                '<td><strong>' + (course.title || 'Untitled Course') + '</strong></td>' +
+                                '<td>' + (course.instructor_name || 'N/A') + '</td>' +
+                                '<td>' + (course.acad_year || 'N/A') + '</td>' +
+                                '<td>' + (course.semester_name || 'N/A') + '</td>' +
+                                '<td>' + (course.term_name || 'N/A') + '</td>' +
+                                '<td><small class="text-muted">' + 
+                                (course.description ? (course.description.length > 80 ? course.description.substring(0, 80) + '...' : course.description) : '') + 
+                                '</small></td>' +
+                                '<td>' + actionButton + '</td>' +
+                                '</tr>';
                         });
 
-                        $('#availableCoursesList').html(html);
-                        $('#availableCoursesList').data('searched', true); // Mark that we've done a server search
+                        $('#availableCoursesTable tbody').html(html);
+                        $('#availableCoursesTable').data('searched', true); // Mark that we've done a server search
                         
                         // Re-initialize enroll buttons for new results
                         initializeEnrollButtons();
@@ -422,14 +535,23 @@ $(document).ready(function() {
 
     // ✅ Initialize Enroll Buttons Function
     function initializeEnrollButtons() {
-        $('.enroll-btn').off('click').on('click', function() {
+        $(document).off('click', '.enroll-btn').on('click', '.enroll-btn', function() {
             const courseId = $(this).data('course-id');
             const button = $(this);
-            const courseTitle = button.closest('li').find('.course-title').text().trim().replace(/\s*\(.*?\)\s*/g, '').trim();
+            const courseTitle = button.closest('tr').find('td:nth-child(3)').text().trim() || 
+                                button.closest('li').find('.course-title').text().trim().replace(/\s*\(.*?\)\s*/g, '').trim();
+            
+            // Disable button during request
+            const originalText = button.html();
+            button.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Enrolling...');
 
             $.ajax({
                 url: "<?= base_url('course/enroll') ?>",
                 type: "POST",
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
                 data: {
                     course_id: courseId,
                     '<?= csrf_token() ?>': '<?= csrf_hash() ?>'
@@ -437,70 +559,60 @@ $(document).ready(function() {
                 dataType: 'json',
                 success: function(response) {
                     if (response.status === 'success') {
-                        // Add to enrolled course list
-                        $('#enrolledCourses').append('<li class="list-group-item d-flex justify-content-between align-items-center">' +
-                            '<span>' + courseTitle + '</span>' +
-                            '<a class="btn btn-sm btn-primary" href="<?= base_url('materials/course/') ?>' + courseId + '">View Materials</a>' +
-                            '</li>');
-                        enrolledCourseIds.add(courseId);
-
-                        // Update the enroll button
-                        button.prop('disabled', true)
-                              .removeClass('btn-success')
-                              .addClass('btn-secondary')
-                              .text('Enrolled');
-
-                        // Remove "no enrollment" message if present
-                        $('.no-enrollment-msg').remove();
-
-                        // Show success alert
+                        // Show success message
                         $('#alertBox').removeClass('d-none alert-danger')
                                       .addClass('alert alert-success')
                                       .text(response.message);
 
-                        // Auto-hide alert after 3 seconds
-                        setTimeout(function() {
-                            $('#alertBox').addClass('d-none');
-                        }, 3000);
-
-                        // ✅ Trigger notification refresh immediately
-                        if (typeof fetchNotifications === 'function') {
-                            setTimeout(function() {
-                                fetchNotifications();
-                                
-                                // After fetching, get the latest notification and show toast
-                                setTimeout(function() {
-                                    $.ajax({
-                                        url: "<?= base_url('notifications') ?>",
-                                        type: "GET",
-                                        dataType: 'json',
-                                        success: function(notifResponse) {
-                                            if (notifResponse.status === 'success' && 
-                                                notifResponse.notifications && 
-                                                notifResponse.notifications.length > 0) {
-                                                
-                                                // Get the most recent unread notification
-                                                const latestNotif = notifResponse.notifications.find(n => n.is_read == 0);
-                                                
-                                                if (latestNotif && typeof showNotificationToast === 'function') {
-                                                    showNotificationToast(latestNotif.id, latestNotif.message);
-                                                }
-                                            }
-                                        }
-                                    });
-                                }, 500);
-                            }, 500);
+                        // Update CSRF token if provided
+                        if (response.csrf_token && response.csrf_hash) {
+                            $('input[name="' + response.csrf_token + '"]').val(response.csrf_hash);
                         }
+
+                        // Reload page immediately to show updated data
+                        setTimeout(function() {
+                            window.location.href = window.location.href;
+                        }, 1000);
                     } else {
+                        // Re-enable button on error
+                        button.prop('disabled', false).html('Enroll');
+                        
                         $('#alertBox').removeClass('d-none alert-success')
                                       .addClass('alert alert-danger')
-                                      .text(response.message);
+                                      .text(response.message || 'An error occurred. Please try again.');
                     }
                 },
-                error: function() {
+                error: function(xhr, status, error) {
+                    // Re-enable button on error
+                    button.prop('disabled', false).html('Enroll');
+                    
+                    let errorMsg = 'An error occurred. Please try again.';
+                    
+                    // Try to get error message from response
+                    if (xhr.responseJSON && xhr.responseJSON.message) {
+                        errorMsg = xhr.responseJSON.message;
+                    } else if (xhr.responseText) {
+                        try {
+                            const response = JSON.parse(xhr.responseText);
+                            if (response.message) {
+                                errorMsg = response.message;
+                            }
+                        } catch (e) {
+                            // If not JSON, use status text
+                            errorMsg = xhr.statusText || 'An error occurred. Please try again.';
+                        }
+                    }
+                    
+                    console.error('Enrollment error:', {
+                        status: xhr.status,
+                        statusText: xhr.statusText,
+                        response: xhr.responseJSON || xhr.responseText,
+                        error: error
+                    });
+                    
                     $('#alertBox').removeClass('d-none alert-success')
                                   .addClass('alert alert-danger')
-                                  .text('An error occurred. Please try again.');
+                                  .text(errorMsg);
                 }
             });
         });

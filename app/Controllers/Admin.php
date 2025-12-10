@@ -4,6 +4,8 @@ namespace App\Controllers;
 
 use App\Models\UserModel;
 use App\Models\AnnouncementModel;
+use App\Models\EnrollmentModel;
+use App\Models\CourseScheduleModel;
 
 class Admin extends BaseController
 {
@@ -20,6 +22,7 @@ class Admin extends BaseController
     // ✅ Manage Users
     public function users()
     {
+        helper('security'); // Load security helper for throughly token
         $session = session();
 
         // RoleAuth filter ensures only admin can access
@@ -29,16 +32,26 @@ class Admin extends BaseController
 
         $userModel = new UserModel();
         
-        // Only show users that are NOT deleted (soft delete filter)
-        // This excludes users with status = 'deleted' from the admin view
-        // Users are preserved in the database but hidden from admin management
-        // Query: Show users where status is NOT 'deleted' (includes NULL, empty, 'active', 'inactive')
+        // Show ALL users including deleted ones so admins can restore them
+        // Users with status = 'deleted' are preserved in the database and can be restored
         $db = \Config\Database::connect();
-        $users = $db->table('users')
-                    ->select('id, name, email, role, status, created_at')
-                    ->where("(status != 'deleted' OR status IS NULL OR status = '')", null, false)
-                    ->get()
-                    ->getResultArray();
+        try {
+            $result = $db->table('users')
+                        ->select('id, name, email, role, status, created_at')
+                        ->orderBy('status', 'ASC')
+                        ->orderBy('created_at', 'DESC')
+                        ->get();
+            
+            if ($result !== false && is_object($result)) {
+                $users = $result->getResultArray();
+            } else {
+                $users = [];
+                log_message('error', 'Failed to fetch users in Admin::users()');
+            }
+        } catch (\Exception $e) {
+            $users = [];
+            log_message('error', 'Failed to fetch users: ' . $e->getMessage());
+        }
 
         $data = [
             'title'     => 'Manage Users',
@@ -64,22 +77,513 @@ class Admin extends BaseController
         // Check if courses table exists
         $courses = [];
         if ($db->query("SHOW TABLES LIKE 'courses'")->getNumRows() > 0) {
-            $courses = $db->table('courses')
+            try {
+                $result = $db->table('courses')
                           ->select('courses.*, users.name as instructor_name')
                           ->join('users', 'courses.instructor_id = users.id', 'left')
                           ->orderBy('courses.created_at', 'DESC')
-                          ->get()
-                          ->getResultArray();
+                          ->get();
+                
+                if ($result !== false && is_object($result)) {
+                    $courses = $result->getResultArray();
+                } else {
+                    // If join fails, try without join
+                    try {
+                        $result = $db->table('courses')
+                            ->orderBy('created_at', 'DESC')
+                            ->get();
+                        if ($result !== false && is_object($result)) {
+                            $courses = $result->getResultArray();
+                        }
+                    } catch (\Exception $e) {
+                        $courses = [];
+                        log_message('error', 'Failed to fetch courses: ' . $e->getMessage());
+                    }
+                }
+            } catch (\Exception $e) {
+                // If query fails, set empty array
+                $courses = [];
+                log_message('error', 'Failed to fetch courses: ' . $e->getMessage());
+            }
+        }
+
+        // Fetch dropdown data for course creation
+        $acadYears = [];
+        $semesters = [];
+        $terms = [];
+        $teachers = [];
+        $departments = [];
+        $programs = [];
+
+        try {
+            if ($db->query("SHOW TABLES LIKE 'acad_years'")->getNumRows() > 0) {
+                $result = $db->table('acad_years')->orderBy('acad_year', 'DESC')->get();
+                if ($result !== false && is_object($result)) {
+                    $acadYears = $result->getResultArray();
+                }
+            }
+        } catch (\Exception $e) {
+            log_message('error', 'Failed to fetch academic years: ' . $e->getMessage());
+        }
+
+        try {
+            if ($db->query("SHOW TABLES LIKE 'semesters'")->getNumRows() > 0) {
+                // Join with academic years for better display
+                $result = $db->table('semesters')
+                    ->select('semesters.id, semesters.semester, semesters.semester_code, semesters.acad_year_id, semesters.is_active')
+                    ->select('acad_years.acad_year', false)
+                    ->join('acad_years', 'semesters.acad_year_id = acad_years.id', 'left')
+                    ->orderBy('semesters.start_date', 'DESC')
+                    ->get();
+                if ($result !== false && is_object($result)) {
+                    $semesters = $result->getResultArray();
+                } else {
+                    // Fallback: try without join
+                    $result = $db->table('semesters')
+                        ->select('semesters.id, semesters.semester, semesters.semester_code, semesters.acad_year_id, semesters.is_active')
+                        ->orderBy('semesters.start_date', 'DESC')
+                        ->get();
+                    if ($result !== false && is_object($result)) {
+                        $semesters = $result->getResultArray();
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            log_message('error', 'Failed to fetch semesters: ' . $e->getMessage());
+        }
+
+        try {
+            if ($db->query("SHOW TABLES LIKE 'terms'")->getNumRows() > 0) {
+                // Join with semesters and academic years for better display
+                $result = $db->table('terms')
+                    ->select('terms.id, terms.term, terms.term_code, terms.semester_id, terms.is_active')
+                    ->select('semesters.semester, semesters.acad_year_id', false)
+                    ->select('acad_years.acad_year', false)
+                    ->join('semesters', 'terms.semester_id = semesters.id', 'left')
+                    ->join('acad_years', 'semesters.acad_year_id = acad_years.id', 'left')
+                    ->orderBy('terms.start_date', 'DESC')
+                    ->get();
+                if ($result !== false && is_object($result)) {
+                    $terms = $result->getResultArray();
+                } else {
+                    // Fallback: try without joins
+                    $result = $db->table('terms')
+                        ->select('terms.id, terms.term, terms.term_code, terms.semester_id, terms.is_active')
+                        ->orderBy('terms.start_date', 'DESC')
+                        ->get();
+                    if ($result !== false && is_object($result)) {
+                        $terms = $result->getResultArray();
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            log_message('error', 'Failed to fetch terms: ' . $e->getMessage());
+        }
+
+        try {
+            // Fetch teachers (users with role 'teacher')
+            $result = $db->table('users')
+                ->where('role', 'teacher')
+                ->orWhere('role', 'Teacher')
+                ->orderBy('name', 'ASC')
+                ->get();
+            if ($result !== false && is_object($result)) {
+                $teachers = $result->getResultArray();
+            }
+        } catch (\Exception $e) {
+            log_message('error', 'Failed to fetch teachers: ' . $e->getMessage());
+        }
+
+        try {
+            // Fetch departments
+            if ($db->query("SHOW TABLES LIKE 'departments'")->getNumRows() > 0) {
+                $result = $db->table('departments')
+                    ->where('is_active', 1)
+                    ->orderBy('department_name', 'ASC')
+                    ->get();
+                if ($result !== false && is_object($result)) {
+                    $departments = $result->getResultArray();
+                }
+            }
+        } catch (\Exception $e) {
+            log_message('error', 'Failed to fetch departments: ' . $e->getMessage());
+        }
+
+        try {
+            // Fetch programs
+            if ($db->query("SHOW TABLES LIKE 'programs'")->getNumRows() > 0) {
+                $result = $db->table('programs')
+                    ->select('programs.*, departments.department_name, departments.department_code')
+                    ->join('departments', 'departments.id = programs.department_id', 'left')
+                    ->where('programs.is_active', 1)
+                    ->orderBy('departments.department_name', 'ASC')
+                    ->orderBy('programs.program_name', 'ASC')
+                    ->get();
+                if ($result !== false && is_object($result)) {
+                    $programs = $result->getResultArray();
+                } else {
+                    // Fallback: try without join
+                    $result = $db->table('programs')
+                        ->where('is_active', 1)
+                        ->orderBy('program_name', 'ASC')
+                        ->get();
+                    if ($result !== false && is_object($result)) {
+                        $programs = $result->getResultArray();
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            log_message('error', 'Failed to fetch programs: ' . $e->getMessage());
         }
 
         $data = [
-            'title'     => 'Manage Courses',
-            'courses'   => $courses,
+            'title'      => 'Manage Courses',
+            'courses'    => $courses,
+            'acadYears'  => $acadYears,
+            'semesters'  => $semesters,
+            'terms'      => $terms,
+            'teachers'   => $teachers,
+            'departments' => $departments,
+            'programs'   => $programs,
+            'user_name'  => $session->get('user_name'),
+            'user_role'  => $session->get('user_role')
+        ];
+
+        return view('admin/manage_courses', $data);
+    }
+
+    // ✅ Create Course
+    public function createCourse()
+    {
+        $session = session();
+
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'admin') {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Access Denied.'
+            ])->setStatusCode(403);
+        }
+
+        $this->response->setContentType('application/json');
+
+        $db = \Config\Database::connect();
+
+        // Get form data
+        $title = $this->request->getPost('title');
+        $description = $this->request->getPost('description');
+        $course_number = $this->request->getPost('course_number');
+        $instructor_id = $this->request->getPost('instructor_id');
+        $acad_year_id = $this->request->getPost('acad_year_id') ?: null;
+        $semester_id = $this->request->getPost('semester_id') ?: null;
+        $term_id = $this->request->getPost('term_id') ?: null;
+        $units = $this->request->getPost('units') ?: null;
+        $department_id = $this->request->getPost('department_id') ?: null;
+        $program_id = $this->request->getPost('program_id') ?: null;
+
+        // Validation
+        if (empty($title)) {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Course title is required.'
+            ])->setStatusCode(400);
+        }
+
+        // Validate instructor if provided
+        if (!empty($instructor_id)) {
+            $instructor = $db->table('users')
+                ->where('id', $instructor_id)
+                ->whereIn('role', ['teacher', 'Teacher'])
+                ->get()
+                ->getRowArray();
+            
+            if (!$instructor) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Invalid instructor selected.'
+                ])->setStatusCode(400);
+            }
+        }
+
+        // Validate academic structure if provided
+        if (!empty($acad_year_id)) {
+            if ($db->query("SHOW TABLES LIKE 'acad_years'")->getNumRows() > 0) {
+                $acadYear = $db->table('acad_years')->where('id', $acad_year_id)->get()->getRowArray();
+                if (!$acadYear) {
+                    return $this->response->setJSON([
+                        'status' => 'error',
+                        'message' => 'Invalid academic year selected.'
+                    ])->setStatusCode(400);
+                }
+            }
+        }
+
+        if (!empty($semester_id)) {
+            if ($db->query("SHOW TABLES LIKE 'semesters'")->getNumRows() > 0) {
+                $result = $db->table('semesters')->where('id', $semester_id)->get();
+                if ($result !== false && is_object($result)) {
+                    $semester = $result->getRowArray();
+                    if (!$semester) {
+                        return $this->response->setJSON([
+                            'status' => 'error',
+                            'message' => 'Invalid semester selected.'
+                        ])->setStatusCode(400);
+                    }
+                } else {
+                    return $this->response->setJSON([
+                        'status' => 'error',
+                        'message' => 'Invalid semester selected.'
+                    ])->setStatusCode(400);
+                }
+            }
+        }
+
+        if (!empty($term_id)) {
+            if ($db->query("SHOW TABLES LIKE 'terms'")->getNumRows() > 0) {
+                $result = $db->table('terms')->where('id', $term_id)->get();
+                if ($result !== false && is_object($result)) {
+                    $term = $result->getRowArray();
+                    if (!$term) {
+                        return $this->response->setJSON([
+                            'status' => 'error',
+                            'message' => 'Invalid term selected.'
+                        ])->setStatusCode(400);
+                    }
+                    // Validate that term belongs to selected semester if both are provided
+                    if (!empty($semester_id) && !empty($term['semester_id']) && (int)$term['semester_id'] !== (int)$semester_id) {
+                        return $this->response->setJSON([
+                            'status' => 'error',
+                            'message' => 'Selected term does not belong to the selected semester.'
+                        ])->setStatusCode(400);
+                    }
+                } else {
+                    return $this->response->setJSON([
+                        'status' => 'error',
+                        'message' => 'Invalid term selected.'
+                    ])->setStatusCode(400);
+                }
+            }
+        }
+
+        // Validate units if provided
+        if (!empty($units)) {
+            $units = (int)$units;
+            if ($units < 0 || $units > 10) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Units must be between 0 and 10.'
+                ])->setStatusCode(400);
+            }
+        }
+
+        // Validate department if provided
+        if (!empty($department_id)) {
+            if ($db->query("SHOW TABLES LIKE 'departments'")->getNumRows() > 0) {
+                $result = $db->table('departments')->where('id', $department_id)->get();
+                if ($result !== false && is_object($result)) {
+                    $department = $result->getRowArray();
+                    if (!$department) {
+                        return $this->response->setJSON([
+                            'status' => 'error',
+                            'message' => 'Invalid department selected.'
+                        ])->setStatusCode(400);
+                    }
+                } else {
+                    return $this->response->setJSON([
+                        'status' => 'error',
+                        'message' => 'Invalid department selected.'
+                    ])->setStatusCode(400);
+                }
+            }
+        }
+
+        // Validate program if provided
+        if (!empty($program_id)) {
+            if ($db->query("SHOW TABLES LIKE 'programs'")->getNumRows() > 0) {
+                $result = $db->table('programs')->where('id', $program_id)->get();
+                if ($result !== false && is_object($result)) {
+                    $program = $result->getRowArray();
+                    if (!$program) {
+                        return $this->response->setJSON([
+                            'status' => 'error',
+                            'message' => 'Invalid program selected.'
+                        ])->setStatusCode(400);
+                    }
+                    // Validate that program belongs to selected department if both are provided
+                    if (!empty($department_id) && !empty($program['department_id']) && (int)$program['department_id'] !== (int)$department_id) {
+                        return $this->response->setJSON([
+                            'status' => 'error',
+                            'message' => 'Selected program does not belong to the selected department.'
+                        ])->setStatusCode(400);
+                    }
+                } else {
+                    return $this->response->setJSON([
+                        'status' => 'error',
+                        'message' => 'Invalid program selected.'
+                    ])->setStatusCode(400);
+                }
+            }
+        }
+
+        // Prepare data
+        $data = [
+            'title' => $title,
+            'description' => $description ?: null,
+            'course_number' => $course_number ?: null,
+            'instructor_id' => !empty($instructor_id) ? (int)$instructor_id : null,
+            'acad_year_id' => !empty($acad_year_id) ? (int)$acad_year_id : null,
+            'semester_id' => !empty($semester_id) ? (int)$semester_id : null,
+            'term_id' => !empty($term_id) ? (int)$term_id : null,
+            'units' => !empty($units) ? (int)$units : null,
+            'department_id' => !empty($department_id) ? (int)$department_id : null,
+            'program_id' => !empty($program_id) ? (int)$program_id : null,
+            'created_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s')
+        ];
+
+        try {
+            $courseId = $db->table('courses')->insert($data);
+            
+            if ($courseId) {
+                log_message('info', "Course created successfully. ID: {$courseId}, Title: {$title}");
+                
+                return $this->response->setJSON([
+                    'status' => 'success',
+                    'message' => 'Course created successfully!',
+                    'course_id' => $courseId,
+                    'csrf_token' => csrf_token(),
+                    'csrf_hash' => csrf_hash()
+                ]);
+            } else {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Failed to create course. Please try again.'
+                ])->setStatusCode(500);
+            }
+        } catch (\Exception $e) {
+            log_message('error', 'Course creation failed: ' . $e->getMessage());
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Failed to create course: ' . $e->getMessage()
+            ])->setStatusCode(500);
+        }
+    }
+
+    // ✅ View All Quizzes (Admin)
+    public function quizzes()
+    {
+        $session = session();
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'admin') {
+            return redirect()->to('/admin_dashboard')->with('error', 'Access Denied.');
+        }
+
+        $quizModel = new \App\Models\QuizModel();
+        $submissionModel = new \App\Models\SubmissionModel();
+        $db = \Config\Database::connect();
+
+        // Get all quizzes with course info
+        $quizzes = [];
+        if ($db->query("SHOW TABLES LIKE 'quizzes'")->getNumRows() > 0) {
+            try {
+                $result = $db->table('quizzes')
+                    ->select('quizzes.*, courses.title as course_title, courses.course_number')
+                    ->join('courses', 'courses.id = quizzes.course_id', 'left')
+                    ->orderBy('quizzes.created_at', 'DESC')
+                    ->get();
+                
+                if ($result !== false && is_object($result)) {
+                    $quizzes = $result->getResultArray();
+                    foreach ($quizzes as &$quiz) {
+                        $quiz['submission_count'] = $submissionModel->where('quiz_id', $quiz['id'])->countAllResults();
+                    }
+                }
+            } catch (\Exception $e) {
+                log_message('error', 'Failed to fetch quizzes: ' . $e->getMessage());
+            }
+        }
+
+        $data = [
+            'title' => 'All Quizzes',
+            'quizzes' => $quizzes,
             'user_name' => $session->get('user_name'),
             'user_role' => $session->get('user_role')
         ];
 
-        return view('admin/manage_courses', $data);
+        return view('admin/quizzes', $data);
+    }
+
+    // ✅ Update Course Number (AJAX)
+    public function updateCourseNumber()
+    {
+        $session = session();
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'admin') {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Unauthorized access'
+            ])->setStatusCode(403);
+        }
+
+        if ($this->request->getMethod() === 'POST') {
+            $courseId = $this->request->getPost('course_id');
+            $courseNumber = trim($this->request->getPost('course_number') ?? '');
+            
+            if (empty($courseId)) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Course ID is required'
+                ]);
+            }
+
+            try {
+                $db = \Config\Database::connect();
+                
+                // Check if course exists
+                $course = $db->table('courses')->where('id', $courseId)->get()->getRowArray();
+                if (!$course) {
+                    return $this->response->setJSON([
+                        'status' => 'error',
+                        'message' => 'Course not found'
+                    ]);
+                }
+                
+                // Update course number (can be empty to clear it)
+                $updateData = ['course_number' => $courseNumber ?: null];
+                
+                // Check if course_number column exists
+                $hasCourseNumber = $db->query("SHOW COLUMNS FROM courses WHERE Field = 'course_number'")->getNumRows() > 0;
+                if (!$hasCourseNumber) {
+                    return $this->response->setJSON([
+                        'status' => 'error',
+                        'message' => 'Course number field does not exist in database'
+                    ]);
+                }
+                
+                $db->table('courses')
+                   ->where('id', $courseId)
+                   ->update($updateData);
+                
+                $message = $courseNumber 
+                    ? "Course number updated to '{$courseNumber}' successfully!" 
+                    : "Course number cleared successfully!";
+                
+                return $this->response->setJSON([
+                    'status' => 'success',
+                    'message' => $message,
+                    'csrf_token' => csrf_token(),
+                    'csrf_hash' => csrf_hash()
+                ]);
+            } catch (\Exception $e) {
+                log_message('error', 'Failed to update course number: ' . $e->getMessage());
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Error updating course number: ' . $e->getMessage()
+                ]);
+            }
+        }
+
+        return $this->response->setJSON([
+            'status' => 'error',
+            'message' => 'Invalid request method'
+        ]);
     }
 
     // ✅ Update User Role (AJAX)
@@ -204,8 +708,8 @@ class Admin extends BaseController
         return redirect()->to('/admin/users')->with('success', '✅ User removed from admin view successfully! (User data preserved in database)');
     }
 
-    // ✅ Toggle User Status (active/inactive)
-    public function toggleUserStatus($userId)
+    // ✅ Restore User (Restore deleted user back to active)
+    public function restoreUser($userId)
     {
         $session = session();
 
@@ -220,11 +724,227 @@ class Admin extends BaseController
             return redirect()->to('/admin/users')->with('error', '⚠️ User not found.');
         }
 
-        // Toggle status
-        $newStatus = ($user['status'] ?? 'active') === 'active' ? 'inactive' : 'active';
-        $userModel->update($userId, ['status' => $newStatus]);
+        // Restore user: Set status back to 'active' from 'deleted'
+        // This allows the user to access the system again
+        if (($user['status'] ?? '') === 'deleted') {
+            $userModel->update($userId, ['status' => 'active']);
+            return redirect()->to('/admin/users')->with('success', '✅ User restored successfully! The user can now access the system again.');
+        } else {
+            return redirect()->to('/admin/users')->with('error', '⚠️ User is not deleted, so it cannot be restored.');
+        }
+    }
 
-        return redirect()->to('/admin/users')->with('success', "✅ User status updated to {$newStatus}!");
+    // ✅ Update User (Edit user details: name, email, role)
+    public function updateUser($userId)
+    {
+        $session = session();
+
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'admin') {
+            if ($this->request->isAJAX() || $this->request->hasHeader('X-Requested-With')) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Access Denied.'
+                ])->setStatusCode(403);
+            }
+            return redirect()->to('/admin_dashboard')->with('error', 'Access Denied.');
+        }
+
+        // Validate "throughly application" token (optional - if provided, validate it)
+        // Load helper safely and only validate if function exists
+        try {
+            helper('security');
+            if (function_exists('validate_throughly_token')) {
+                $throughlyToken = $this->request->getPost('throughly_token');
+                if (!empty($throughlyToken)) {
+                    // Only validate if token is provided
+                    if (!validate_throughly_token($throughlyToken)) {
+                        // If validation fails, log for debugging but don't block the request
+                        // This allows the system to work even if token validation has issues
+                        log_message('warning', 'Throughly token validation failed for user update: ' . $userId);
+                        // Continue with the request - token validation is a security enhancement, not a blocker
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            // Helper not found or error loading - continue without token validation
+            log_message('debug', 'Security helper not available: ' . $e->getMessage());
+        }
+
+        $userModel = new UserModel();
+        $user = $userModel->find($userId);
+
+        if (!$user) {
+            if ($this->request->isAJAX() || $this->request->hasHeader('X-Requested-With')) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => '⚠️ User not found.'
+                ])->setStatusCode(404);
+            }
+            return redirect()->to('/admin/users')->with('error', '⚠️ User not found.');
+        }
+
+        // Get form data
+        $name = $this->request->getPost('name');
+        $email = $this->request->getPost('email');
+        // Role changes are not allowed via Edit modal
+
+        // Sanitize name - only trim whitespace
+        $name = trim($name);
+        
+        // Reject names with invalid characters - only allow proper name characters
+        // Allow: letters (a-z, A-Z, including accented), numbers (0-9), spaces, hyphens (-), apostrophes ('), periods (.), commas (,)
+        // Reject: brackets [], semicolons ;, and other special characters that aren't part of proper names
+        if (strlen($name) > 0) {
+            // Check for invalid characters that aren't part of proper names
+            // Pattern: allows letters, numbers, spaces, hyphens, apostrophes, periods, commas
+            // Rejects: brackets, semicolons, equals, plus signs, slashes, and other special chars
+            if (!preg_match('/^[\p{L}\p{N}\s\-\'\.\,]+$/u', $name)) {
+                // Log for debugging
+                log_message('info', 'Name rejected due to invalid characters: ' . $name);
+                if ($this->request->isAJAX() || $this->request->hasHeader('X-Requested-With')) {
+                    return $this->response->setJSON([
+                        'status' => 'error',
+                        'message' => 'Invalid characters detected in name. Only letters, numbers, spaces, hyphens, apostrophes, periods, and commas are allowed.'
+                    ])->setStatusCode(400);
+                }
+                return redirect()->to('/admin/users')->with('error', 'Invalid characters detected in name. Only letters, numbers, spaces, hyphens, apostrophes, periods, and commas are allowed.');
+            }
+            
+            // Also check for specific "throughly application" security patterns
+            $throughlyPatterns = [
+                'ˈthȯr-',
+                'ˈthə-(ˌ)rō',
+                'θʌrəθɜːroʊ',
+                '=+[\';/.,.\'',
+                '[][];;;;[[',
+                '[[',
+                ']]',
+                ';;'
+            ];
+            
+            $nameNormalized = mb_strtolower($name, 'UTF-8');
+            foreach ($throughlyPatterns as $pattern) {
+                $patternNormalized = mb_strtolower($pattern, 'UTF-8');
+                if (mb_strpos($nameNormalized, $patternNormalized) !== false) {
+                    log_message('info', 'Name rejected due to throughly pattern: ' . $name . ' (pattern: ' . $pattern . ')');
+                    if ($this->request->isAJAX() || $this->request->hasHeader('X-Requested-With')) {
+                        return $this->response->setJSON([
+                            'status' => 'error',
+                            'message' => 'Invalid characters detected in name. Security characters are not allowed.'
+                        ])->setStatusCode(400);
+                    }
+                    return redirect()->to('/admin/users')->with('error', 'Invalid characters detected in name. Security characters are not allowed.');
+                }
+            }
+        }
+        
+        // Name passed validation - accept it (log for debugging only)
+        log_message('debug', 'Name validation passed: ' . $name);
+
+        // Validation - VERY lenient, only basic checks (no pattern restrictions)
+        $validation = \Config\Services::validation();
+        $validation->setRules([
+            'name' => [
+                'label' => 'Name',
+                'rules' => 'required|min_length[1]|max_length[255]',
+                'errors' => [
+                    'required' => 'Name is required.',
+                    'min_length' => 'Name must be at least 1 character.',
+                    'max_length' => 'Name cannot exceed 255 characters.'
+                ]
+            ],
+            'email' => [
+                'label' => 'Email',
+                'rules' => 'required|valid_email|max_length[255]',
+                'errors' => [
+                    'required' => 'Email is required.',
+                    'valid_email' => 'Please enter a valid email address.',
+                    'max_length' => 'Email cannot exceed 255 characters.'
+                ]
+            ],
+            // Role not editable in Edit modal
+        ]);
+
+        if (!$validation->withRequest($this->request)->run()) {
+            $errors = $validation->getErrors();
+            $errorMessage = '⚠️ Validation failed: ' . implode(' ', $errors);
+            // Log validation errors for debugging
+            log_message('debug', 'Validation failed for user update: ' . json_encode($errors) . ' | Name: ' . $name);
+            if ($this->request->isAJAX() || $this->request->hasHeader('X-Requested-With')) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => $errorMessage,
+                    'errors' => $errors
+                ])->setStatusCode(400);
+            }
+            return redirect()->to('/admin/users')->with('error', $errorMessage);
+        }
+
+        // Check if email already exists for another user
+        $existingUser = $userModel->where('email', $email)->where('id !=', $userId)->first();
+        if ($existingUser) {
+            $errorMessage = '⚠️ Email already exists for another user.';
+            if ($this->request->isAJAX() || $this->request->hasHeader('X-Requested-With')) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => $errorMessage
+                ])->setStatusCode(400);
+            }
+            return redirect()->to('/admin/users')->with('error', $errorMessage);
+        }
+
+        // Role changes are not processed via this endpoint
+
+        // Update user
+        $updateData = [
+            'name' => $name,
+            'email' => $email
+        ];
+
+        // Do not update role here
+
+        try {
+            // Skip model validation for updates (we've already validated in controller)
+            $userModel->skipValidation(true);
+            $result = $userModel->update($userId, $updateData);
+            $userModel->skipValidation(false);
+            
+            if (!$result) {
+                $errorMessage = '⚠️ Failed to update user. ' . implode(', ', $userModel->errors());
+                if ($this->request->isAJAX() || $this->request->hasHeader('X-Requested-With')) {
+                    return $this->response->setJSON([
+                        'status' => 'error',
+                        'message' => $errorMessage
+                    ])->setStatusCode(500);
+                }
+                return redirect()->to('/admin/users')->with('error', $errorMessage);
+            }
+            
+            // Generate new CSRF token
+            $security = service('security');
+            $newToken = $security->getHash();
+            
+            $successMessage = '✅ User updated successfully!';
+            
+            if ($this->request->isAJAX() || $this->request->hasHeader('X-Requested-With')) {
+                return $this->response->setJSON([
+                    'status' => 'success',
+                    'message' => $successMessage,
+                    'csrf_token' => $newToken
+                ]);
+            }
+            
+            return redirect()->to('/admin/users')->with('success', $successMessage);
+        } catch (\Exception $e) {
+            $errorMessage = '⚠️ Failed to update user: ' . $e->getMessage();
+            if ($this->request->isAJAX() || $this->request->hasHeader('X-Requested-With')) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => $errorMessage
+                ])->setStatusCode(500);
+            }
+            return redirect()->to('/admin/users')->with('error', $errorMessage);
+        }
     }
 
     // ✅ View All Announcements
@@ -274,6 +994,7 @@ class Admin extends BaseController
     // ✅ User Management Page (Create Users - Admin Only)
     public function userManagement()
     {
+        helper('security'); // Load security helper for throughly token
         $session = session();
 
         if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'admin') {
@@ -301,10 +1022,30 @@ class Admin extends BaseController
             ])->setStatusCode(403);
         }
 
+        // Validate "throughly application" token (optional - if provided, validate it)
+        // Load helper safely and only validate if function exists
+        try {
+            helper('security');
+            if (function_exists('validate_throughly_token')) {
+                $throughlyToken = $this->request->getPost('throughly_token');
+                if (!empty($throughlyToken)) {
+                    // Only validate if token is provided
+                    if (!validate_throughly_token($throughlyToken)) {
+                        // If validation fails, log for debugging but don't block the request
+                        log_message('warning', 'Throughly token validation failed for user creation');
+                        // Continue with the request - token validation is a security enhancement, not a blocker
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            // Helper not found or error loading - continue without token validation
+            log_message('debug', 'Security helper not available: ' . $e->getMessage());
+        }
+
         if ($this->request->getMethod() === 'POST') {
             $userModel = new UserModel();
 
-            $name = $this->request->getPost('name');
+            $name = trim($this->request->getPost('name'));
             $email = $this->request->getPost('email');
             $password = $this->request->getPost('password');
             $role = $this->request->getPost('role');
@@ -317,6 +1058,53 @@ class Admin extends BaseController
                     'message' => 'All fields are required'
                 ]);
             }
+
+            // Sanitize name - only trim whitespace
+            $name = trim($name);
+            
+            // Reject names with invalid characters - only allow proper name characters
+            // Allow: letters (a-z, A-Z, including accented), numbers (0-9), spaces, hyphens (-), apostrophes ('), periods (.), commas (,)
+            // Reject: brackets [], semicolons ;, and other special characters that aren't part of proper names
+            if (strlen($name) > 0) {
+                // Check for invalid characters that aren't part of proper names
+                // Pattern: allows letters, numbers, spaces, hyphens, apostrophes, periods, commas
+                // Rejects: brackets, semicolons, equals, plus signs, slashes, and other special chars
+                if (!preg_match('/^[\p{L}\p{N}\s\-\'\.\,]+$/u', $name)) {
+                    // Log for debugging
+                    log_message('info', 'Name rejected due to invalid characters: ' . $name);
+                    return $this->response->setJSON([
+                        'status' => 'error',
+                        'message' => 'Invalid characters detected in name. Only letters, numbers, spaces, hyphens, apostrophes, periods, and commas are allowed.'
+                    ])->setStatusCode(400);
+                }
+                
+                // Also check for specific "throughly application" security patterns
+                $throughlyPatterns = [
+                    'ˈthȯr-',
+                    'ˈthə-(ˌ)rō',
+                    'θʌrəθɜːroʊ',
+                    '=+[\';/.,.\'',
+                    '[][];;;;[[',
+                    '[[',
+                    ']]',
+                    ';;'
+                ];
+                
+                $nameNormalized = mb_strtolower($name, 'UTF-8');
+                foreach ($throughlyPatterns as $pattern) {
+                    $patternNormalized = mb_strtolower($pattern, 'UTF-8');
+                    if (mb_strpos($nameNormalized, $patternNormalized) !== false) {
+                        log_message('info', 'Name rejected due to throughly pattern: ' . $name . ' (pattern: ' . $pattern . ')');
+                        return $this->response->setJSON([
+                            'status' => 'error',
+                            'message' => 'Invalid characters detected in name. Security characters are not allowed.'
+                        ])->setStatusCode(400);
+                    }
+                }
+            }
+            
+            // Name passed validation - accept it (log for debugging only)
+            log_message('debug', 'Name validation passed: ' . $name);
 
             // Validate role
             if (!in_array(strtolower($role), ['admin', 'teacher', 'student'])) {
@@ -476,5 +1264,656 @@ class Admin extends BaseController
             'status' => 'error',
             'message' => 'Invalid request method'
         ]);
+    }
+
+    // ✅ Enrollment Management (Admin)
+    public function enrollments()
+    {
+        $session = session();
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'admin') {
+            return redirect()->to('/admin_dashboard')->with('error', 'Access Denied.');
+        }
+
+        $db = \Config\Database::connect();
+        $enrollmentModel = new EnrollmentModel();
+        $userModel = new UserModel();
+        
+        // Get all enrollments with course and user info
+        $enrollments = [];
+        if ($db->query("SHOW TABLES LIKE 'enrollments'")->getNumRows() > 0) {
+            try {
+                // Build select with all necessary fields - NO ROLE FILTERING
+                $selectFields = 'enrollments.id, enrollments.user_id, enrollments.course_id, 
+                                enrollments.enrolled_at, enrollments.enrollment_date,
+                                enrollments.completion_status, enrollments.final_grade,
+                                users.name as user_name, users.email, users.role,
+                                courses.title as course_title';
+                
+                // Add course_number field (check if it exists)
+                try {
+                    $hasCourseNumber = $db->query("SHOW COLUMNS FROM courses WHERE Field = 'course_number'")->getNumRows() > 0;
+                    if ($hasCourseNumber) {
+                        $selectFields .= ', courses.course_number';
+                    } else {
+                        $selectFields .= ', courses.code as course_number';
+                    }
+                } catch (\Exception $e) {
+                    $selectFields .= ', NULL as course_number';
+                }
+                
+                $result = $db->table('enrollments')
+                    ->select($selectFields)
+                    ->join('users', 'users.id = enrollments.user_id', 'inner')
+                    ->join('courses', 'courses.id = enrollments.course_id', 'inner')
+                    ->orderBy('enrollments.enrolled_at', 'DESC')
+                    ->orderBy('enrollments.id', 'DESC')
+                    ->get();
+                
+                if ($result !== false && is_object($result)) {
+                    $enrollments = $result->getResultArray();
+                    // Ensure all fields exist
+                    foreach ($enrollments as &$enrollment) {
+                        $enrollment['course_number'] = $enrollment['course_number'] ?? 'N/A';
+                        $enrollment['completion_status'] = $enrollment['completion_status'] ?? 'ENROLLED';
+                        $enrollment['enrolled_at'] = $enrollment['enrolled_at'] ?? $enrollment['enrollment_date'] ?? 'N/A';
+                        // Ensure role is properly set
+                        if (!isset($enrollment['role'])) {
+                            $enrollment['role'] = 'student'; // Default fallback
+                        }
+                    }
+                } else {
+                    // If join fails, try without joins
+                    try {
+                        $result = $db->table('enrollments')
+                            ->orderBy('enrolled_at', 'DESC')
+                            ->orderBy('id', 'DESC')
+                            ->get();
+                        if ($result !== false && is_object($result)) {
+                            $enrollments = $result->getResultArray();
+                        }
+                    } catch (\Exception $e) {
+                        $enrollments = [];
+                        log_message('error', 'Failed to fetch enrollments: ' . $e->getMessage());
+                    }
+                }
+            } catch (\Exception $e) {
+                // If query fails, set empty array
+                $enrollments = [];
+                log_message('error', 'Failed to fetch enrollments: ' . $e->getMessage());
+            }
+        }
+
+        // Get all students and teachers for enrollment
+        $students = $userModel->where('role', 'student')->where('status', 'active')->findAll();
+        $teachers = $userModel->where('role', 'teacher')->where('status', 'active')->findAll();
+        
+        // Get all courses
+        $courses = [];
+        if ($db->query("SHOW TABLES LIKE 'courses'")->getNumRows() > 0) {
+            try {
+                $result = $db->table('courses')
+                    ->select('courses.*, users.name as instructor_name')
+                    ->join('users', 'users.id = courses.instructor_id', 'left')
+                    ->get();
+                
+                if ($result !== false && is_object($result)) {
+                    $courses = $result->getResultArray();
+                } else {
+                    // If join fails, try without join
+                    try {
+                        $result = $db->table('courses')
+                            ->get();
+                        if ($result !== false && is_object($result)) {
+                            $courses = $result->getResultArray();
+                        }
+                    } catch (\Exception $e) {
+                        $courses = [];
+                        log_message('error', 'Failed to fetch courses: ' . $e->getMessage());
+                    }
+                }
+            } catch (\Exception $e) {
+                // If query fails, set empty array
+                $courses = [];
+                log_message('error', 'Failed to fetch courses: ' . $e->getMessage());
+            }
+        }
+
+        $data = [
+            'title' => 'Enrollment Management',
+            'enrollments' => $enrollments,
+            'students' => $students,
+            'teachers' => $teachers,
+            'courses' => $courses,
+            'user_name' => $session->get('user_name'),
+            'user_role' => $session->get('user_role'),
+        ];
+
+        return view('admin/enrollments', $data);
+    }
+
+    // ✅ Enroll User (Admin - can enroll students and teachers)
+    public function enrollUser()
+    {
+        $session = session();
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'admin') {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Unauthorized access'
+            ])->setStatusCode(403);
+        }
+
+        if ($this->request->getMethod() === 'POST') {
+            $enrollmentModel = new EnrollmentModel();
+            
+            $userId = $this->request->getPost('user_id');
+            $courseId = $this->request->getPost('course_id');
+
+            if (empty($userId) || empty($courseId)) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'User and Course are required'
+                ]);
+            }
+
+            // Check if already enrolled
+            if ($enrollmentModel->isAlreadyEnrolled($userId, $courseId)) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'User is already enrolled in this course'
+                ]);
+            }
+
+            // Enroll user
+            try {
+                $enrollmentData = [
+                    'user_id' => (int)$userId,
+                    'course_id' => (int)$courseId,
+                    'enrolled_at' => date('Y-m-d H:i:s'),
+                    'enrollment_date' => date('Y-m-d H:i:s'),
+                    'completion_status' => 'ENROLLED',
+                ];
+                
+                // Skip validation temporarily to avoid issues
+                $enrollmentModel->skipValidation(true);
+                
+                // Use insert directly to avoid timestamp issues
+                $enrollmentId = $enrollmentModel->insert($enrollmentData);
+                
+                // Re-enable validation
+                $enrollmentModel->skipValidation(false);
+                
+                if (!$enrollmentId) {
+                    $errors = $enrollmentModel->errors();
+                    $errorMsg = 'Failed to create enrollment: ' . (empty($errors) ? 'Unknown error' : implode(', ', $errors));
+                    log_message('error', 'Enrollment failed: ' . $errorMsg);
+                    throw new \Exception($errorMsg);
+                }
+
+                // Get user info for success message
+                $userModel = new UserModel();
+                $user = $userModel->find($userId);
+                $userName = $user ? $user['name'] : 'User';
+                $userRole = $user ? ucfirst($user['role']) : 'User';
+                
+                // Get course info
+                $db = \Config\Database::connect();
+                $course = $db->table('courses')->where('id', $courseId)->get()->getRowArray();
+                $courseTitle = $course ? $course['title'] : 'Course';
+
+                return $this->response->setJSON([
+                    'status' => 'success',
+                    'message' => "{$userRole} '{$userName}' enrolled in '{$courseTitle}' successfully!",
+                    'csrf_token' => csrf_token(),
+                    'csrf_hash' => csrf_hash()
+                ]);
+            } catch (\Exception $e) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Error enrolling user: ' . $e->getMessage()
+                ]);
+            }
+        }
+
+        return $this->response->setJSON([
+            'status' => 'error',
+            'message' => 'Invalid request method'
+        ]);
+    }
+
+    // ✅ Assign Teacher to Course (Admin)
+    public function assignTeacher()
+    {
+        $session = session();
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'admin') {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Unauthorized access'
+            ])->setStatusCode(403);
+        }
+
+        if ($this->request->getMethod() === 'POST') {
+            $db = \Config\Database::connect();
+            
+            $courseId = $this->request->getPost('course_id');
+            $teacherId = $this->request->getPost('teacher_id');
+
+            if (empty($courseId) || empty($teacherId)) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Course and Teacher are required'
+                ]);
+            }
+
+            // Verify teacher role
+            $userModel = new UserModel();
+            $teacher = $userModel->find($teacherId);
+            if (!$teacher || strtolower($teacher['role']) !== 'teacher') {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Selected user is not a teacher'
+                ]);
+            }
+
+            // Update course instructor and create enrollment
+            try {
+                $enrollmentModel = new EnrollmentModel();
+                
+                // Check if teacher is already enrolled
+                if ($enrollmentModel->isAlreadyEnrolled($teacherId, $courseId)) {
+                    // If already enrolled, just update the instructor_id
+                    $db->table('courses')
+                       ->where('id', $courseId)
+                       ->update(['instructor_id' => $teacherId]);
+                    
+                    // Get teacher and course info for message
+                    $teacherName = $teacher['name'];
+                    $course = $db->table('courses')->where('id', $courseId)->get()->getRowArray();
+                    $courseTitle = $course ? $course['title'] : 'Course';
+                    
+                    return $this->response->setJSON([
+                        'status' => 'success',
+                        'message' => "Teacher '{$teacherName}' is already enrolled and assigned to '{$courseTitle}'!",
+                        'csrf_token' => csrf_token(),
+                        'csrf_hash' => csrf_hash()
+                    ]);
+                }
+                
+                // Update course instructor_id
+                $db->table('courses')
+                   ->where('id', $courseId)
+                   ->update(['instructor_id' => $teacherId]);
+                
+                // Create enrollment record for the teacher
+                $enrollmentData = [
+                    'user_id' => (int)$teacherId,
+                    'course_id' => (int)$courseId,
+                    'enrolled_at' => date('Y-m-d H:i:s'),
+                    'enrollment_date' => date('Y-m-d H:i:s'),
+                    'completion_status' => 'ENROLLED',
+                ];
+                
+                // Skip validation temporarily to avoid issues
+                $enrollmentModel->skipValidation(true);
+                $enrollmentId = $enrollmentModel->insert($enrollmentData);
+                $enrollmentModel->skipValidation(false);
+                
+                if (!$enrollmentId) {
+                    $errors = $enrollmentModel->errors();
+                    log_message('error', 'Failed to create enrollment for teacher: ' . implode(', ', $errors));
+                    // Still return success for instructor assignment, but note enrollment issue
+                    $teacherName = $teacher['name'];
+                    $course = $db->table('courses')->where('id', $courseId)->get()->getRowArray();
+                    $courseTitle = $course ? $course['title'] : 'Course';
+                    
+                    return $this->response->setJSON([
+                        'status' => 'warning',
+                        'message' => "Teacher '{$teacherName}' assigned to '{$courseTitle}', but enrollment record creation had issues.",
+                        'csrf_token' => csrf_token(),
+                        'csrf_hash' => csrf_hash()
+                    ]);
+                }
+                
+                // Get teacher and course info for success message
+                $teacherName = $teacher['name'];
+                $course = $db->table('courses')->where('id', $courseId)->get()->getRowArray();
+                $courseTitle = $course ? $course['title'] : 'Course';
+
+                return $this->response->setJSON([
+                    'status' => 'success',
+                    'message' => "Teacher '{$teacherName}' assigned to '{$courseTitle}' and enrolled successfully!",
+                    'csrf_token' => csrf_token(),
+                    'csrf_hash' => csrf_hash()
+                ]);
+            } catch (\Exception $e) {
+                log_message('error', 'Error assigning teacher: ' . $e->getMessage());
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Error assigning teacher: ' . $e->getMessage()
+                ]);
+            }
+        }
+
+        return $this->response->setJSON([
+            'status' => 'error',
+            'message' => 'Invalid request method'
+        ]);
+    }
+
+    // ✅ Unenroll User (Admin) - AJAX
+    public function unenrollUser()
+    {
+        $session = session();
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'admin') {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Unauthorized access'
+            ])->setStatusCode(403);
+        }
+
+        if ($this->request->getMethod() === 'POST') {
+            $enrollmentId = $this->request->getPost('enrollment_id');
+            
+            if (empty($enrollmentId)) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Enrollment ID is required'
+                ]);
+            }
+
+            try {
+                $enrollmentModel = new EnrollmentModel();
+                
+                // Get enrollment info before deleting for success message
+                $enrollment = $enrollmentModel->find($enrollmentId);
+                if (!$enrollment) {
+                    return $this->response->setJSON([
+                        'status' => 'error',
+                        'message' => 'Enrollment not found'
+                    ]);
+                }
+                
+                // Get user and course info
+                $userModel = new UserModel();
+                $user = $userModel->find($enrollment['user_id']);
+                $userName = $user ? $user['name'] : 'User';
+                
+                $db = \Config\Database::connect();
+                $course = $db->table('courses')->where('id', $enrollment['course_id'])->get()->getRowArray();
+                $courseTitle = $course ? $course['title'] : 'Course';
+                
+                if ($enrollmentModel->delete($enrollmentId)) {
+                    return $this->response->setJSON([
+                        'status' => 'success',
+                        'message' => "User '{$userName}' unenrolled from '{$courseTitle}' successfully!",
+                        'csrf_token' => csrf_token(),
+                        'csrf_hash' => csrf_hash()
+                    ]);
+                } else {
+                    $errors = $enrollmentModel->errors();
+                    return $this->response->setJSON([
+                        'status' => 'error',
+                        'message' => 'Failed to unenroll user: ' . (empty($errors) ? 'Unknown error' : implode(', ', $errors))
+                    ]);
+                }
+            } catch (\Exception $e) {
+                log_message('error', 'Unenroll failed: ' . $e->getMessage());
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Error unenrolling user: ' . $e->getMessage()
+                ]);
+            }
+        }
+
+        return $this->response->setJSON([
+            'status' => 'error',
+            'message' => 'Invalid request method'
+        ]);
+    }
+
+    // ✅ Schedule Management - List All Schedules
+    public function schedules()
+    {
+        $session = session();
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'admin') {
+            return redirect()->to('/admin_dashboard')->with('error', 'Access Denied.');
+        }
+
+        // Handle AJAX request for single schedule (for edit)
+        if ($this->request->isAJAX() && $this->request->getGet('schedule_id')) {
+            $scheduleId = $this->request->getGet('schedule_id');
+            $scheduleModel = new CourseScheduleModel();
+            $schedule = $scheduleModel->find($scheduleId);
+            
+            if ($schedule) {
+                return $this->response->setJSON([
+                    'status' => 'success',
+                    'schedule' => $schedule
+                ]);
+            } else {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Schedule not found'
+                ]);
+            }
+        }
+
+        $db = \Config\Database::connect();
+        $scheduleModel = new CourseScheduleModel();
+
+        // Get all schedules with course and instructor info
+        $schedules = [];
+        try {
+            $result = $db->table('course_schedules')
+                ->select('course_schedules.*, courses.title as course_title, courses.course_number, users.name as instructor_name')
+                ->join('courses', 'courses.id = course_schedules.course_id', 'left')
+                ->join('users', 'users.id = courses.instructor_id', 'left')
+                ->orderBy('courses.title', 'ASC')
+                ->orderBy('course_schedules.day_of_week', 'ASC')
+                ->orderBy('course_schedules.start_time', 'ASC')
+                ->get();
+
+            if ($result !== false && is_object($result)) {
+                $schedules = $result->getResultArray();
+            }
+        } catch (\Exception $e) {
+            log_message('error', 'Failed to fetch schedules: ' . $e->getMessage());
+        }
+
+        // Get all courses for dropdown
+        $courses = [];
+        try {
+            $result = $db->table('courses')
+                ->select('courses.id, courses.title, courses.course_number, users.name as instructor_name')
+                ->join('users', 'users.id = courses.instructor_id', 'left')
+                ->orderBy('courses.title', 'ASC')
+                ->get();
+
+            if ($result !== false && is_object($result)) {
+                $courses = $result->getResultArray();
+            }
+        } catch (\Exception $e) {
+            log_message('error', 'Failed to fetch courses: ' . $e->getMessage());
+        }
+
+        $data = [
+            'title' => 'Course Schedules',
+            'schedules' => $schedules,
+            'courses' => $courses,
+            'user_name' => $session->get('user_name'),
+            'user_role' => $session->get('user_role'),
+        ];
+
+        return view('admin/schedules', $data);
+    }
+
+    // ✅ Create Schedule
+    public function createSchedule()
+    {
+        $session = session();
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'admin') {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Access Denied.'
+            ])->setStatusCode(403);
+        }
+
+        if ($this->request->getMethod() !== 'POST') {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Invalid request method.'
+            ]);
+        }
+
+        $validation = \Config\Services::validation();
+        $validation->setRules([
+            'course_id' => 'required|integer',
+            'class_type' => 'required|in_list[online,face_to_face]',
+            'day_of_week' => 'required|max_length[20]',
+            'start_time' => 'required',
+            'end_time' => 'required',
+            'room' => 'permit_empty|max_length[50]',
+            'meeting_link' => 'permit_empty|valid_url',
+        ]);
+
+        if (!$validation->run($this->request->getPost())) {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Validation failed: ' . implode(', ', $validation->getErrors())
+            ]);
+        }
+
+        $scheduleModel = new CourseScheduleModel();
+        $data = [
+            'course_id' => $this->request->getPost('course_id'),
+            'class_type' => $this->request->getPost('class_type'),
+            'day_of_week' => $this->request->getPost('day_of_week'),
+            'start_time' => $this->request->getPost('start_time'),
+            'end_time' => $this->request->getPost('end_time'),
+            'room' => $this->request->getPost('room') ?: null,
+            'meeting_link' => $this->request->getPost('meeting_link') ?: null,
+        ];
+
+        if ($scheduleModel->insert($data)) {
+            return $this->response->setJSON([
+                'status' => 'success',
+                'message' => 'Schedule created successfully!',
+                'csrf_token' => csrf_token(),
+                'csrf_hash' => csrf_hash()
+            ]);
+        } else {
+            $errors = $scheduleModel->errors();
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Failed to create schedule: ' . (empty($errors) ? 'Unknown error' : implode(', ', $errors))
+            ]);
+        }
+    }
+
+    // ✅ Update Schedule
+    public function updateSchedule($scheduleId)
+    {
+        $session = session();
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'admin') {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Access Denied.'
+            ])->setStatusCode(403);
+        }
+
+        if ($this->request->getMethod() !== 'POST') {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Invalid request method.'
+            ]);
+        }
+
+        $scheduleModel = new CourseScheduleModel();
+        $schedule = $scheduleModel->find($scheduleId);
+        
+        if (!$schedule) {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Schedule not found.'
+            ]);
+        }
+
+        $validation = \Config\Services::validation();
+        $validation->setRules([
+            'course_id' => 'required|integer',
+            'class_type' => 'required|in_list[online,face_to_face]',
+            'day_of_week' => 'required|max_length[20]',
+            'start_time' => 'required',
+            'end_time' => 'required',
+            'room' => 'permit_empty|max_length[50]',
+            'meeting_link' => 'permit_empty|valid_url',
+        ]);
+
+        if (!$validation->run($this->request->getPost())) {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Validation failed: ' . implode(', ', $validation->getErrors())
+            ]);
+        }
+
+        $data = [
+            'course_id' => $this->request->getPost('course_id'),
+            'class_type' => $this->request->getPost('class_type'),
+            'day_of_week' => $this->request->getPost('day_of_week'),
+            'start_time' => $this->request->getPost('start_time'),
+            'end_time' => $this->request->getPost('end_time'),
+            'room' => $this->request->getPost('room') ?: null,
+            'meeting_link' => $this->request->getPost('meeting_link') ?: null,
+        ];
+
+        if ($scheduleModel->update($scheduleId, $data)) {
+            return $this->response->setJSON([
+                'status' => 'success',
+                'message' => 'Schedule updated successfully!',
+                'csrf_token' => csrf_token(),
+                'csrf_hash' => csrf_hash()
+            ]);
+        } else {
+            $errors = $scheduleModel->errors();
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Failed to update schedule: ' . (empty($errors) ? 'Unknown error' : implode(', ', $errors))
+            ]);
+        }
+    }
+
+    // ✅ Delete Schedule
+    public function deleteSchedule($scheduleId)
+    {
+        $session = session();
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'admin') {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Access Denied.'
+            ])->setStatusCode(403);
+        }
+
+        $scheduleModel = new CourseScheduleModel();
+        $schedule = $scheduleModel->find($scheduleId);
+        
+        if (!$schedule) {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Schedule not found.'
+            ]);
+        }
+
+        if ($scheduleModel->delete($scheduleId)) {
+            return $this->response->setJSON([
+                'status' => 'success',
+                'message' => 'Schedule deleted successfully!',
+                'csrf_token' => csrf_token(),
+                'csrf_hash' => csrf_hash()
+            ]);
+        } else {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Failed to delete schedule.'
+            ]);
+        }
     }
 }

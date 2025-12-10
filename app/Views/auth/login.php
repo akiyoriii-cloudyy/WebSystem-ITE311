@@ -37,7 +37,10 @@
 
         <!-- Success/Error messages -->
         <?php if(session()->has('success')): ?>
-            <div class="alert alert-success"><?= esc(session('success')) ?></div>
+            <div class="alert alert-success"><?= session('success') ?></div>
+        <?php endif; ?>
+        <?php if(session()->has('warning')): ?>
+            <div class="alert alert-warning"><?= session('warning') ?></div>
         <?php endif; ?>
         <?php if(session()->has('error')): ?>
             <div class="alert alert-danger"><?= esc(session('error')) ?></div>
@@ -58,6 +61,10 @@
 
             <button class="btn btn-success w-100" type="submit">Login</button>
         </form>
+
+        <div class="text-center mt-3">
+            <p class="mb-0">Don't have an account? <a href="<?= site_url('register') ?>">Register</a></p>
+        </div>
     </div>
 </div>
 </body>

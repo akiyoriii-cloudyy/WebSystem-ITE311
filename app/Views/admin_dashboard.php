@@ -27,32 +27,111 @@
             <div class="col-md-3"><div class="card text-center p-3"><h6>Active Teachers</h6><h3><?= esc($stats['active_teachers'] ?? 0) ?></h3></div></div>
         </div>
 
+        <!-- Quick Access Cards -->
+        <div class="row mb-4">
+            <div class="col-md-4 mb-3">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">📚 Academic Structure</h5>
+                        <p class="card-text">Manage Academic Years, Semesters, and Terms</p>
+                        <div class="d-flex flex-column gap-2">
+                            <a href="<?= site_url('admin/academic/years') ?>" class="btn btn-primary btn-sm">Academic Years</a>
+                            <div class="d-flex gap-2">
+                                <a href="<?= site_url('admin/academic/semesters') ?>" class="btn btn-primary btn-sm flex-fill">Semesters</a>
+                                <a href="<?= site_url('admin/academic/terms') ?>" class="btn btn-primary btn-sm flex-fill">Terms</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4 mb-3">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">🏢 Department & Programs</h5>
+                        <p class="card-text">Manage Departments and Academic Programs</p>
+                        <div class="d-flex gap-2">
+                            <a href="<?= site_url('admin/departments') ?>" class="btn btn-success btn-sm flex-fill">Departments</a>
+                            <a href="<?= site_url('admin/programs') ?>" class="btn btn-success btn-sm flex-fill">Programs</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4 mb-3">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">👥 Enrollment Management</h5>
+                        <p class="card-text">Enroll students and teachers, assign teachers to courses</p>
+                        <a href="<?= site_url('admin/enrollments') ?>" class="btn btn-info btn-sm">Manage Enrollments</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-4 mb-3">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">📝 Quizzes & Submissions</h5>
+                        <p class="card-text">Manage Quizzes and View All Submissions</p>
+                        <a href="<?= site_url('admin/quizzes') ?>" class="btn btn-success btn-sm w-100">View All Quizzes</a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4 mb-3">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">📅 Course Schedules</h5>
+                        <p class="card-text">Manage class schedules, online and face-to-face sessions</p>
+                        <a href="<?= site_url('admin/schedules') ?>" class="btn btn-warning btn-sm w-100">Manage Schedules</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="card mt-4">
-            <div class="card-header fw-bold">Courses</div>
+            <div class="card-header fw-bold d-flex justify-content-between align-items-center">
+                <span>Courses Overview</span>
+                <a href="<?= site_url('admin/courses') ?>" class="btn btn-sm btn-primary">Manage Courses</a>
+            </div>
             <div class="card-body">
                 <?php if (!empty($courses)): ?>
-                    <table class="table table-bordered align-middle">
-                        <thead class="table-light">
-                            <tr>
-                                <th>#</th>
-                                <th>Course</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($courses as $i => $c): ?>
+                    <div class="table-responsive">
+                        <table class="table table-bordered align-middle">
+                            <thead class="table-light">
                                 <tr>
-                                    <td><?= $i + 1 ?></td>
-                                    <td><?= esc($c['title'] ?? $c['name'] ?? ('Course #' . $c['id'])) ?></td>
-                                    <td>
-                                        <a class="btn btn-sm btn-primary" href="<?= base_url('admin/course/' . $c['id'] . '/upload') ?>">Upload Materials</a>
-                                    </td>
+                                    <th>#</th>
+                                    <th>Course Code</th>
+                                    <th>Course Title</th>
+                                    <th>Instructor</th>
+                                    <th>Actions</th>
                                 </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($courses as $i => $c): ?>
+                                    <tr>
+                                        <td><?= $i + 1 ?></td>
+                                        <td>
+                                            <?php 
+                                            $courseCode = $c['course_number'] ?? $c['course_code'] ?? $c['code'] ?? '';
+                                            if (!empty($courseCode)): ?>
+                                                <span class="badge bg-secondary"><?= esc($courseCode) ?></span>
+                                            <?php else: ?>
+                                                <span class="text-muted">-</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td><?= esc($c['title'] ?? $c['name'] ?? ('Course #' . $c['id'])) ?></td>
+                                        <td><?= esc($c['instructor_name'] ?? 'Not Assigned') ?></td>
+                                        <td>
+                                            <a class="btn btn-sm btn-primary" href="<?= base_url('admin/course/' . $c['id'] . '/upload') ?>">Materials</a>
+                                            <a class="btn btn-sm btn-info" href="<?= site_url('admin/courses') ?>">Manage</a>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
                 <?php else: ?>
-                    <p class="text-muted mb-0">No courses found.</p>
+                    <p class="text-muted mb-0">No courses found. <a href="<?= site_url('admin/courses') ?>">Create a course</a></p>
                 <?php endif; ?>
             </div>
         </div>

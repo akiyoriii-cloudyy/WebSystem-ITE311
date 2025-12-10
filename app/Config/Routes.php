@@ -56,14 +56,18 @@ $routes->group('', ['filter' => 'roleauth'], function ($routes) {
         // User Management
         $routes->get('users', 'Admin::users');
         $routes->post('users/update-role', 'Admin::updateUserRole');
+        $routes->post('users/update/(:num)', 'Admin::updateUser/$1');
         $routes->get('users/delete/(:num)', 'Admin::deleteUser/$1');
-        $routes->get('users/toggle-status/(:num)', 'Admin::toggleUserStatus/$1');
+        $routes->get('users/restore/(:num)', 'Admin::restoreUser/$1');
         $routes->post('users/create', 'Admin::createUser');
+        $routes->get('users/get-token', 'Admin::getToken');
         $routes->get('user-management', 'Admin::userManagement');
         
         // Course Management
         $routes->get('courses', 'Admin::manageCourses');
         $routes->get('manage-courses', 'Admin::manageCourses');
+        $routes->post('courses/create', 'Admin::createCourse');
+        $routes->post('courses/update-course-number', 'Admin::updateCourseNumber');
 
         // Materials Upload (Admin)
         $routes->get('course/(:num)/upload', 'Materials::upload/$1');
@@ -75,6 +79,30 @@ $routes->group('', ['filter' => 'roleauth'], function ($routes) {
 
         $routes->get('announcements/delete/(:num)', 'Announcement::delete/$1');
         $routes->get('announcement', 'Announcement::index', ['filter' => 'roleauth:admin']);
+        
+        // Academic Structure Management
+        $routes->match(['get', 'post'], 'academic/years', 'AcademicManagement::acadYears');
+        $routes->match(['get', 'post'], 'academic/semesters', 'AcademicManagement::semesters');
+        $routes->match(['get', 'post'], 'academic/terms', 'AcademicManagement::terms');
+        
+        // Department & Program Management
+        $routes->match(['get', 'post'], 'departments', 'AcademicManagement::departments');
+        $routes->match(['get', 'post'], 'programs', 'AcademicManagement::programs');
+        
+        // Enrollment Management (Admin)
+        $routes->match(['get', 'post'], 'enrollments', 'Admin::enrollments');
+        
+        // Quiz Management (Admin)
+        $routes->get('quizzes', 'Admin::quizzes');
+        $routes->post('enrollments/enroll', 'Admin::enrollUser');
+        $routes->post('enrollments/unenroll', 'Admin::unenrollUser');
+        $routes->post('courses/assign-teacher', 'Admin::assignTeacher');
+        
+        // Schedule Management (Admin)
+        $routes->match(['get', 'post'], 'schedules', 'Admin::schedules');
+        $routes->post('schedules/create', 'Admin::createSchedule');
+        $routes->post('schedules/update/(:num)', 'Admin::updateSchedule/$1');
+        $routes->post('schedules/delete/(:num)', 'Admin::deleteSchedule/$1');
     });
 
     // --------------------
@@ -98,6 +126,18 @@ $routes->group('', ['filter' => 'roleauth'], function ($routes) {
         
         // Announcements
         $routes->get('announcements', 'Teacher::announcements');
+        
+        // Quizzes & Submissions (Teacher)
+        $routes->get('quizzes', 'Teacher::quizzes');
+        
+        // Student Enrollment (Teacher)
+        $routes->match(['get', 'post'], 'courses/(:num)/enroll-students', 'Teacher::enrollStudents/$1');
+        $routes->post('courses/(:num)/enroll-student', 'Teacher::enrollStudent/$1');
+        
+        // Grading Management
+        $routes->match(['get', 'post'], 'courses/(:num)/assignments', 'Teacher::assignments/$1');
+        $routes->match(['get', 'post'], 'assignments/(:num)/grade', 'Teacher::gradeAssignment/$1');
+        
     });
 
     // --------------------
@@ -110,6 +150,12 @@ $routes->group('', ['filter' => 'roleauth'], function ($routes) {
         // Courses
         $routes->get('courses', 'StudentController::courses');
         $routes->post('courses/enroll', 'StudentController::enroll');
+        
+        // Quiz Management (Student)
+        $routes->get('quiz/course/(:num)', 'Quiz::studentIndex/$1');
+        $routes->get('quiz/take/(:num)', 'Quiz::take/$1');
+        $routes->post('quiz/submit', 'Quiz::submit');
+        $routes->get('quiz/result/(:num)', 'Quiz::viewResult/$1');
     });
 
     // --------------------
@@ -122,6 +168,15 @@ $routes->group('', ['filter' => 'roleauth'], function ($routes) {
     // --------------------
     $routes->get('courses', 'Course::index');
     $routes->match(['get', 'post'], 'courses/search', 'Course::search');
+
+    // --------------------
+    // Quiz Management (Shared - Teacher/Admin)
+    // --------------------
+    $routes->get('quiz/course/(:num)', 'Quiz::index/$1', ['filter' => 'roleauth:teacher,admin']);
+    $routes->match(['get', 'post'], 'quiz/create/(:num)', 'Quiz::create/$1', ['filter' => 'roleauth:teacher,admin']);
+    $routes->get('quiz/(:num)/submissions', 'Quiz::submissions/$1', ['filter' => 'roleauth:teacher,admin']);
+    $routes->post('quiz/grade-submission', 'Quiz::gradeSubmission', ['filter' => 'roleauth:teacher,admin']);
+    $routes->get('quiz/delete/(:num)', 'Quiz::delete/$1', ['filter' => 'roleauth:teacher,admin']);
 
     // --------------------
     // Materials (Delete/Download)
@@ -138,4 +193,3 @@ $routes->group('', ['filter' => 'roleauth'], function ($routes) {
     $routes->post('notifications/mark_all_read', 'Notifications::mark_all_as_read');
 
 });
-
