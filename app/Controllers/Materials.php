@@ -103,6 +103,7 @@ class Materials extends BaseController
                     'file_name' => $file->getClientName(),
                     'file_path' => 'uploads/materials/' . $newName,
                     'created_at' => date('Y-m-d H:i:s'),
+                    'status' => 'active',
                 ];
                 
                 log_message('info', 'Attempting to insert material: {data}', ['data' => json_encode($data)]);
@@ -175,10 +176,20 @@ class Materials extends BaseController
         }
 
         // GET: show form and list existing materials
+        $userRole = strtolower($session->get('user_role') ?? '');
         $materials = $materialModel->getMaterialsByCourse($course_id);
+        
+        // For admins, also get deleted materials
+        $deletedMaterials = [];
+        if ($userRole === 'admin') {
+            $deletedMaterials = $materialModel->getDeletedMaterialsByCourse($course_id);
+        }
+        
         return view('materials/upload', [
             'course_id' => $course_id,
             'materials' => $materials,
+            'deleted_materials' => $deletedMaterials,
+            'user_role' => $userRole,
         ]);
     }
 
@@ -195,13 +206,45 @@ class Materials extends BaseController
             return redirect()->back()->with('error', 'Material not found.');
         }
 
-        $fullPath = WRITEPATH . $material['file_path'];
-        if (is_file($fullPath)) {
-            @unlink($fullPath);
+        // Soft delete: Set status to 'deleted' instead of deleting the file and record
+        // The file is preserved so it can be restored later
+        if ($materialModel->softDelete($material_id)) {
+            return redirect()->back()->with('success', 'Material deleted successfully. It can be restored by admin.');
+        } else {
+            return redirect()->back()->with('error', 'Failed to delete material.');
+        }
+    }
+
+    public function restore($material_id)
+    {
+        $session = session();
+        if (!$session->get('logged_in')) {
+            return redirect()->to(base_url('login'));
         }
 
-        $materialModel->delete($material_id);
-        return redirect()->back()->with('success', 'Material deleted successfully.');
+        // Only admins can restore materials
+        $userRole = strtolower($session->get('user_role') ?? '');
+        if ($userRole !== 'admin') {
+            return redirect()->back()->with('error', 'Only administrators can restore materials.');
+        }
+
+        $materialModel = new MaterialModel();
+        $material = $materialModel->find($material_id);
+        if (!$material) {
+            return redirect()->back()->with('error', 'Material not found.');
+        }
+
+        // Check if material is actually deleted
+        if (($material['status'] ?? 'active') !== 'deleted') {
+            return redirect()->back()->with('error', 'Material is not deleted, so it cannot be restored.');
+        }
+
+        // Restore: Set status back to 'active'
+        if ($materialModel->restore($material_id)) {
+            return redirect()->back()->with('success', 'Material restored successfully.');
+        } else {
+            return redirect()->back()->with('error', 'Failed to restore material.');
+        }
     }
 
     public function download($material_id)
@@ -219,15 +262,23 @@ class Materials extends BaseController
             return redirect()->back()->with('error', 'Material not found.');
         }
 
-        // Access control: ensure the user is enrolled in the course
-        $enrollmentModel = new EnrollmentModel();
-        $enrolled = $enrollmentModel
-            ->where('user_id', $userId)
-            ->where('course_id', (int)$material['course_id'])
-            ->countAllResults() > 0;
+        // Prevent downloading deleted materials (unless admin)
+        $userRole = strtolower($session->get('user_role') ?? '');
+        if (($material['status'] ?? 'active') === 'deleted' && $userRole !== 'admin') {
+            return redirect()->back()->with('error', 'This material has been deleted and is no longer available.');
+        }
 
-        if (!$enrolled) {
-            return redirect()->back()->with('error', 'You are not enrolled in this course.');
+        // Access control: ensure the user is enrolled in the course (admins bypass this check)
+        if ($userRole !== 'admin') {
+            $enrollmentModel = new EnrollmentModel();
+            $enrolled = $enrollmentModel
+                ->where('user_id', $userId)
+                ->where('course_id', (int)$material['course_id'])
+                ->countAllResults() > 0;
+
+            if (!$enrolled) {
+                return redirect()->back()->with('error', 'You are not enrolled in this course.');
+            }
         }
 
         $fullPath = WRITEPATH . $material['file_path'];

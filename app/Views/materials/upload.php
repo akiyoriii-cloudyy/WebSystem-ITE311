@@ -55,4 +55,32 @@ $backUrl = base_url($role === 'admin' ? 'admin/manage-courses' : 'teacher/course
       </tbody>
     </table>
   </div>
+
+  <?php if ($user_role === 'admin' && !empty($deleted_materials)): ?>
+    <h5 class="mt-4 text-muted">Deleted Materials (Restore Available)</h5>
+    <div class="table-responsive">
+      <table class="table table-bordered table-striped table-secondary">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>File Name</th>
+            <th>Uploaded At</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php $i=1; foreach ($deleted_materials as $m): ?>
+            <tr>
+              <td><?= $i++; ?></td>
+              <td><span class="text-decoration-line-through"><?= esc($m['file_name']); ?></span> <span class="badge bg-danger">Deleted</span></td>
+              <td><?= esc($m['created_at']); ?></td>
+              <td>
+                <a class="btn btn-sm btn-warning" href="<?= base_url('materials/restore/' . (int)$m['id']) ?>" onclick="return confirm('Restore this material?');">Restore</a>
+              </td>
+            </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+    </div>
+  <?php endif; ?>
 </div>

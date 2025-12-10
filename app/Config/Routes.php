@@ -182,6 +182,7 @@ $routes->group('', ['filter' => 'roleauth'], function ($routes) {
     // Materials (Delete/Download)
     // --------------------
     $routes->get('materials/delete/(:num)', 'Materials::delete/$1');
+    $routes->get('materials/restore/(:num)', 'Materials::restore/$1');
     $routes->get('materials/download/(:num)', 'Materials::download/$1');
     $routes->get('materials/course/(:num)', 'Materials::listByCourse/$1');
 
