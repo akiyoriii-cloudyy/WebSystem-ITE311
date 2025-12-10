@@ -105,13 +105,64 @@
             </div>
         </div>
 
+        <!-- ✅ Search Form -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <form id="searchForm" method="GET" action="<?= base_url('courses/search') ?>">
+                    <div class="row">
+                        <div class="col-md-10">
+                            <div class="input-group">
+                                <span class="input-group-text">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-search" viewBox="0 0 16 16">
+                                        <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+                                    </svg>
+                                </span>
+                                <input 
+                                    type="text" 
+                                    class="form-control" 
+                                    id="searchInput" 
+                                    name="q" 
+                                    placeholder="Search courses by title, description, or code..." 
+                                    value=""
+                                    autocomplete="off">
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <button type="submit" class="btn btn-primary w-100" id="searchBtn">
+                                Search
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- ✅ Search Results Info -->
+        <div id="searchInfo" class="mb-3" style="display: none;">
+            <p class="text-muted">
+                <span id="resultCount">0</span> result(s) found
+            </p>
+        </div>
+
+        <!-- ✅ Search Success Alert -->
+        <div id="searchSuccessAlert" class="alert alert-success alert-dismissible fade show mb-3" style="display: none;" role="alert">
+            <strong>✅ Search Success:</strong> <span id="searchSuccessMessage">Search results found!</span>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+
+        <!-- ✅ Search Error Alert -->
+        <div id="searchErrorAlert" class="alert alert-danger alert-dismissible fade show mb-3" style="display: none;" role="alert">
+            <strong>⚠️ Search Error:</strong> <span id="searchErrorMessage">Wrong search not in the field, try again.</span>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+
         <!-- My Courses Table -->
         <div class="card mt-4">
             <div class="card-header fw-bold">My Courses & Enrolled Students</div>
             <div class="card-body">
                 <?php if (!empty($courses)): ?>
                     <div class="table-responsive">
-                        <table class="table table-bordered align-middle">
+                        <table class="table table-bordered align-middle" id="coursesTable">
                             <thead class="table-light">
                                 <tr>
                                     <th>#</th>
@@ -125,7 +176,7 @@
                                     <th>Actions</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody id="coursesTableBody">
                                 <?php 
                                 $db = \Config\Database::connect();
                                 foreach ($courses as $index => $c):
@@ -178,6 +229,9 @@
                                 <?php endforeach; ?>
                             </tbody>
                         </table>
+                    </div>
+                    <div id="noSearchResults" style="display: none;">
+                        <p class="text-muted mb-0">No courses found matching your search.</p>
                     </div>
                 <?php else: ?>
                     <p class="text-muted mb-0">No courses assigned. Please contact admin to assign courses to you.</p>
@@ -260,6 +314,226 @@ $(document).ready(function() {
         const courseId = $(this).data('course-id');
         if (courseId) enrolledCourseIds.add(courseId);
     });
+
+    // ✅ AUTOMATIC SERVER-SIDE SEARCH (Debounced - for teacher role)
+    <?php if ($user_role === 'teacher'): ?>
+    let searchTimeout;
+    let isSearching = false;
+    const originalCoursesHtml = $('#coursesTableBody').html(); // Store original courses
+    const courseStudentsData = {}; // Store students data for each course
+    
+    // Store original course data with students
+    <?php 
+    $db = \Config\Database::connect();
+    foreach ($courses as $c): 
+        $courseId = $c['id'];
+        $students = $db->table('enrollments')
+            ->select('users.id, users.name, users.email')
+            ->join('users', 'users.id = enrollments.user_id')
+            ->where('enrollments.course_id', $courseId)
+            ->get()->getResultArray();
+    ?>
+        courseStudentsData[<?= $courseId ?>] = <?= json_encode($students) ?>;
+    <?php endforeach; ?>
+    
+    function performServerSearch(searchTerm) {
+        if (isSearching) return; // Prevent multiple simultaneous searches
+        
+        isSearching = true;
+        const $searchBtn = $('#searchBtn');
+        const originalBtnText = $searchBtn.html();
+        
+        // Show loading indicator
+        $searchBtn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Searching...');
+
+        $.ajax({
+            url: "<?= base_url('courses/search') ?>",
+            type: "GET",
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            data: {
+                q: searchTerm
+            },
+            dataType: 'json',
+            success: function(response) {
+                isSearching = false;
+                $searchBtn.prop('disabled', false).html(originalBtnText);
+
+                if (response.status === 'success') {
+                    // Update search info
+                    $('#resultCount').text(response.count);
+                    $('#searchInfo').show();
+
+                    // Clear existing courses
+                    $('#coursesTableBody').empty();
+                    $('#noSearchResults').hide();
+
+                    if (response.results.length > 0) {
+                        // Hide error alert and show success alert if results found
+                        $('#searchErrorAlert').hide();
+                        $('#searchSuccessAlert').show();
+                        $('#searchSuccessMessage').text('Search results found! ' + response.count + ' course(s) matching your search.');
+                        
+                        // Build table rows from search results
+                        response.results.forEach(function(course, index) {
+                            const courseCode = course.course_number || course.code || '';
+                            const courseCodeHtml = courseCode 
+                                ? '<span class="badge bg-secondary">' + courseCode + '</span>'
+                                : '<span class="text-muted">-</span>';
+                            
+                            // Get students for this course (from stored data or empty)
+                            const students = courseStudentsData[course.id] || [];
+                            const studentsHtml = students.length > 0
+                                ? '<span class="text-success">' + students.length + ' student(s)</span>'
+                                : '<span class="text-muted">0 students</span>';
+                            
+                            const studentsBtnHtml = students.length > 0
+                                ? '<button class="btn btn-sm btn-info view-students-btn" data-students=\'' + JSON.stringify(students) + '\' data-course-title="' + course.title + '">View Students</button>'
+                                : '';
+                            
+                            const row = '<tr>' +
+                                '<td>' + (index + 1) + '</td>' +
+                                '<td>' + courseCodeHtml + '</td>' +
+                                '<td>' + course.title + '</td>' +
+                                '<td>' + (course.acad_year || '<span class="text-muted">N/A</span>') + '</td>' +
+                                '<td>' + (course.semester_name || '<span class="text-muted">N/A</span>') + '</td>' +
+                                '<td>' + (course.term_name || '<span class="text-muted">N/A</span>') + '</td>' +
+                                '<td>' + studentsHtml + '</td>' +
+                                '<td><span class="badge bg-info">0</span></td>' +
+                                '<td>' +
+                                    '<div class="btn-group" role="group">' +
+                                        '<a class="btn btn-sm btn-primary" href="<?= site_url("teacher/courses/") ?>' + course.id + '/enroll-students">Enroll Students</a> ' +
+                                        '<a class="btn btn-sm btn-success" href="<?= site_url("teacher/courses/") ?>' + course.id + '/assignments">Assignments</a> ' +
+                                        studentsBtnHtml +
+                                    '</div>' +
+                                '</td>' +
+                            '</tr>';
+                            $('#coursesTableBody').append(row);
+                        });
+                        
+                        // Re-initialize view students buttons
+                        $('.view-students-btn').off('click').on('click', function() {
+                            const students = $(this).data('students');
+                            const courseTitle = $(this).data('course-title');
+                            $('#studentsModalLabel').text('Students Enrolled in: ' + courseTitle);
+
+                            let listHtml = '';
+                            if (students && students.length > 0) {
+                                students.forEach(function(s) {
+                                    listHtml += '<li class="list-group-item">' + s.name + ' (' + s.email + ')</li>';
+                                });
+                            } else {
+                                listHtml = '<li class="list-group-item text-muted">No students enrolled.</li>';
+                            }
+
+                            $('#studentsList').html(listHtml);
+                            $('#studentsModal').modal('show');
+                        });
+                    } else {
+                        // Show error alert when no results found
+                        $('#searchErrorAlert').show();
+                        $('#searchErrorMessage').text('Wrong search not in the field, try again.');
+                        $('#noSearchResults').show();
+                    }
+                } else {
+                    $('#searchInfo').hide();
+                    alert('Search failed: ' + (response.message || 'Unknown error'));
+                }
+            },
+            error: function(xhr, status, error) {
+                isSearching = false;
+                $searchBtn.prop('disabled', false).html(originalBtnText);
+                $('#searchInfo').hide();
+                console.error('Search error:', error);
+                alert('An error occurred during search. Please try again.');
+            }
+        });
+    }
+
+    // Automatic search as user types (with debouncing)
+    $('#searchInput').on('input', function() {
+        const searchTerm = $(this).val().trim();
+        
+        // Clear previous timeout
+        clearTimeout(searchTimeout);
+        
+        if (searchTerm === '') {
+            // If search is empty, restore original courses
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(function() {
+                // Hide error and success alerts when clearing search
+                $('#searchErrorAlert').hide();
+                $('#searchSuccessAlert').hide();
+                $('#coursesTableBody').html(originalCoursesHtml);
+                $('#searchInfo').hide();
+                $('#noSearchResults').hide();
+                // Re-initialize view students buttons
+                $('.view-students-btn').off('click').on('click', function() {
+                    const students = $(this).data('students');
+                    const courseTitle = $(this).data('course-title');
+                    $('#studentsModalLabel').text('Students Enrolled in: ' + courseTitle);
+
+                    let listHtml = '';
+                    if (students && students.length > 0) {
+                        students.forEach(function(s) {
+                            listHtml += '<li class="list-group-item">' + s.name + ' (' + s.email + ')</li>';
+                        });
+                    } else {
+                        listHtml = '<li class="list-group-item text-muted">No students enrolled.</li>';
+                    }
+
+                    $('#studentsList').html(listHtml);
+                    $('#studentsModal').modal('show');
+                });
+            }, 300);
+        } else {
+            // Debounce: wait 500ms after user stops typing before searching
+            searchTimeout = setTimeout(function() {
+                performServerSearch(searchTerm);
+            }, 500);
+        }
+    });
+
+    // ✅ SERVER-SIDE SEARCH (AJAX - Submit form)
+    $('#searchForm').on('submit', function(e) {
+        e.preventDefault();
+        
+        // Clear any pending timeout
+        clearTimeout(searchTimeout);
+        
+        // Perform search immediately when form is submitted
+        const searchTerm = $('#searchInput').val().trim();
+        if (searchTerm === '') {
+            // Hide error and success alerts when clearing search
+            $('#searchErrorAlert').hide();
+            $('#searchSuccessAlert').hide();
+            $('#coursesTableBody').html(originalCoursesHtml);
+            $('#searchInfo').hide();
+            $('#noSearchResults').hide();
+            // Re-initialize view students buttons
+            $('.view-students-btn').off('click').on('click', function() {
+                const students = $(this).data('students');
+                const courseTitle = $(this).data('course-title');
+                $('#studentsModalLabel').text('Students Enrolled in: ' + courseTitle);
+
+                let listHtml = '';
+                if (students && students.length > 0) {
+                    students.forEach(function(s) {
+                        listHtml += '<li class="list-group-item">' + s.name + ' (' + s.email + ')</li>';
+                    });
+                } else {
+                    listHtml = '<li class="list-group-item text-muted">No students enrolled.</li>';
+                }
+
+                $('#studentsList').html(listHtml);
+                $('#studentsModal').modal('show');
+            });
+        } else {
+            performServerSearch(searchTerm);
+        }
+    });
+    <?php endif; ?>
 
     // Enroll button
     $('.enroll-btn').each(function() {

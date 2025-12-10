@@ -88,6 +88,57 @@
             </div>
         </div>
 
+        <!-- ✅ Search Form -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <form id="searchForm" method="GET" action="<?= base_url('courses/search') ?>">
+                    <div class="row">
+                        <div class="col-md-10">
+                            <div class="input-group">
+                                <span class="input-group-text">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-search" viewBox="0 0 16 16">
+                                        <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+                                    </svg>
+                                </span>
+                                <input 
+                                    type="text" 
+                                    class="form-control" 
+                                    id="searchInput" 
+                                    name="q" 
+                                    placeholder="Search courses by title, description, or code..." 
+                                    value=""
+                                    autocomplete="off">
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <button type="submit" class="btn btn-primary w-100" id="searchBtn">
+                                Search
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- ✅ Search Results Info -->
+        <div id="searchInfo" class="mb-3" style="display: none;">
+            <p class="text-muted">
+                <span id="resultCount">0</span> result(s) found
+            </p>
+        </div>
+
+        <!-- ✅ Search Success Alert -->
+        <div id="searchSuccessAlert" class="alert alert-success alert-dismissible fade show mb-3" style="display: none;" role="alert">
+            <strong>✅ Search Success:</strong> <span id="searchSuccessMessage">Search results found!</span>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+
+        <!-- ✅ Search Error Alert -->
+        <div id="searchErrorAlert" class="alert alert-danger alert-dismissible fade show mb-3" style="display: none;" role="alert">
+            <strong>⚠️ Search Error:</strong> <span id="searchErrorMessage">Wrong search not in the field, try again.</span>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+
         <div class="card mt-4">
             <div class="card-header fw-bold d-flex justify-content-between align-items-center">
                 <span>Courses Overview</span>
@@ -96,7 +147,7 @@
             <div class="card-body">
                 <?php if (!empty($courses)): ?>
                     <div class="table-responsive">
-                        <table class="table table-bordered align-middle">
+                        <table class="table table-bordered align-middle" id="coursesTable">
                             <thead class="table-light">
                                 <tr>
                                     <th>#</th>
@@ -106,7 +157,7 @@
                                     <th>Actions</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody id="coursesTableBody">
                                 <?php foreach ($courses as $i => $c): ?>
                                     <tr>
                                         <td><?= $i + 1 ?></td>
@@ -129,6 +180,9 @@
                                 <?php endforeach; ?>
                             </tbody>
                         </table>
+                    </div>
+                    <div id="noSearchResults" style="display: none;">
+                        <p class="text-muted mb-0">No courses found matching your search.</p>
                     </div>
                 <?php else: ?>
                     <p class="text-muted mb-0">No courses found. <a href="<?= site_url('admin/courses') ?>">Create a course</a></p>
@@ -270,6 +324,139 @@ $(document).ready(function() {
         const courseId = $(this).data('course-id');
         if (courseId) enrolledCourseIds.add(courseId);
     });
+
+    // ✅ AUTOMATIC SERVER-SIDE SEARCH (Debounced - for admin role)
+    <?php if ($user_role === 'admin'): ?>
+    let searchTimeout;
+    let isSearching = false;
+    const originalCoursesHtml = $('#coursesTableBody').html(); // Store original courses
+    
+    function performServerSearch(searchTerm) {
+        if (isSearching) return; // Prevent multiple simultaneous searches
+        
+        isSearching = true;
+        const $searchBtn = $('#searchBtn');
+        const originalBtnText = $searchBtn.html();
+        
+        // Show loading indicator
+        $searchBtn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Searching...');
+
+        $.ajax({
+            url: "<?= base_url('courses/search') ?>",
+            type: "GET",
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            data: {
+                q: searchTerm
+            },
+            dataType: 'json',
+            success: function(response) {
+                isSearching = false;
+                $searchBtn.prop('disabled', false).html(originalBtnText);
+
+                if (response.status === 'success') {
+                    // Update search info
+                    $('#resultCount').text(response.count);
+                    $('#searchInfo').show();
+
+                    // Clear existing courses
+                    $('#coursesTableBody').empty();
+                    $('#noSearchResults').hide();
+
+                    if (response.results.length > 0) {
+                        // Hide error alert and show success alert if results found
+                        $('#searchErrorAlert').hide();
+                        $('#searchSuccessAlert').show();
+                        $('#searchSuccessMessage').text('Search results found! ' + response.count + ' course(s) matching your search.');
+                        
+                        // Build table rows from search results
+                        response.results.forEach(function(course, index) {
+                            const courseCode = course.course_number || course.code || '';
+                            const courseCodeHtml = courseCode 
+                                ? '<span class="badge bg-secondary">' + courseCode + '</span>'
+                                : '<span class="text-muted">-</span>';
+                            
+                            const row = '<tr>' +
+                                '<td>' + (index + 1) + '</td>' +
+                                '<td>' + courseCodeHtml + '</td>' +
+                                '<td>' + course.title + '</td>' +
+                                '<td>' + (course.instructor_name || 'Not Assigned') + '</td>' +
+                                '<td>' +
+                                    '<a class="btn btn-sm btn-primary" href="<?= base_url("admin/course/") ?>' + course.id + '/upload">Materials</a> ' +
+                                    '<a class="btn btn-sm btn-info" href="<?= site_url("admin/courses") ?>">Manage</a>' +
+                                '</td>' +
+                            '</tr>';
+                            $('#coursesTableBody').append(row);
+                        });
+                    } else {
+                        // Show error alert when no results found
+                        $('#searchErrorAlert').show();
+                        $('#searchErrorMessage').text('Wrong search not in the field, try again.');
+                        $('#noSearchResults').show();
+                    }
+                } else {
+                    $('#searchInfo').hide();
+                    alert('Search failed: ' + (response.message || 'Unknown error'));
+                }
+            },
+            error: function(xhr, status, error) {
+                isSearching = false;
+                $searchBtn.prop('disabled', false).html(originalBtnText);
+                $('#searchInfo').hide();
+                console.error('Search error:', error);
+                alert('An error occurred during search. Please try again.');
+            }
+        });
+    }
+
+    // Automatic search as user types (with debouncing)
+    $('#searchInput').on('input', function() {
+        const searchTerm = $(this).val().trim();
+        
+        // Clear previous timeout
+        clearTimeout(searchTimeout);
+        
+        if (searchTerm === '') {
+            // If search is empty, restore original courses
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(function() {
+                // Hide error and success alerts when clearing search
+                $('#searchErrorAlert').hide();
+                $('#searchSuccessAlert').hide();
+                $('#coursesTableBody').html(originalCoursesHtml);
+                $('#searchInfo').hide();
+                $('#noSearchResults').hide();
+            }, 300);
+        } else {
+            // Debounce: wait 500ms after user stops typing before searching
+            searchTimeout = setTimeout(function() {
+                performServerSearch(searchTerm);
+            }, 500);
+        }
+    });
+
+    // ✅ SERVER-SIDE SEARCH (AJAX - Submit form)
+    $('#searchForm').on('submit', function(e) {
+        e.preventDefault();
+        
+        // Clear any pending timeout
+        clearTimeout(searchTimeout);
+        
+        // Perform search immediately when form is submitted
+        const searchTerm = $('#searchInput').val().trim();
+        if (searchTerm === '') {
+            // Hide error and success alerts when clearing search
+            $('#searchErrorAlert').hide();
+            $('#searchSuccessAlert').hide();
+            $('#coursesTableBody').html(originalCoursesHtml);
+            $('#searchInfo').hide();
+            $('#noSearchResults').hide();
+        } else {
+            performServerSearch(searchTerm);
+        }
+    });
+    <?php endif; ?>
 
     // Enroll button
     $('.enroll-btn').each(function() {

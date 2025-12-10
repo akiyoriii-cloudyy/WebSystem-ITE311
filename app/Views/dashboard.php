@@ -286,6 +286,18 @@
             </p>
         </div>
 
+        <!-- ✅ Search Success Alert -->
+        <div id="searchSuccessAlert" class="alert alert-success alert-dismissible fade show mb-3" style="display: none;" role="alert">
+            <strong>✅ Search Success:</strong> <span id="searchSuccessMessage">Search results found!</span>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+
+        <!-- ✅ Search Error Alert -->
+        <div id="searchErrorAlert" class="alert alert-danger alert-dismissible fade show mb-3" style="display: none;" role="alert">
+            <strong>⚠️ Search Error:</strong> <span id="searchErrorMessage">Wrong search not in the field, try again.</span>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+
         <div class="card mb-4">
             <div class="card-header bg-primary text-white fw-bold">Available Courses</div>
             <div class="card-body">
@@ -422,6 +434,11 @@ $(document).ready(function() {
                     $('#noSearchResults').hide();
 
                     if (response.results.length > 0) {
+                        // Hide error alert and show success alert if results found
+                        $('#searchErrorAlert').hide();
+                        $('#searchSuccessAlert').show();
+                        $('#searchSuccessMessage').text('Search results found! ' + response.count + ' course(s) matching your search.');
+                        
                         // Display search results as table rows
                         let html = '';
                         response.results.forEach(function(course, index) {
@@ -458,6 +475,9 @@ $(document).ready(function() {
                         // Re-initialize enroll buttons for new results
                         initializeEnrollButtons();
                     } else {
+                        // Show error alert when no results found
+                        $('#searchErrorAlert').show();
+                        $('#searchErrorMessage').text('Wrong search not in the field, try again.');
                         $('#noSearchResults').show();
                     }
                 } else {
@@ -509,6 +529,9 @@ $(document).ready(function() {
             // If search is empty, reload all courses
             clearTimeout(searchTimeout);
             searchTimeout = setTimeout(function() {
+                // Hide error and success alerts when clearing search
+                $('#searchErrorAlert').hide();
+                $('#searchSuccessAlert').hide();
                 // Reload page to show all courses
                 window.location.href = "<?= base_url('dashboard') ?>";
             }, 300);
