@@ -4,10 +4,35 @@ namespace App\Controllers;
 
 use App\Models\MaterialModel;
 use App\Models\EnrollmentModel;
+use App\Models\NotificationModel;
 
 class Materials extends BaseController
 {
     protected $helpers = ['form', 'url'];
+
+    /**
+     * Helper method to prepare view data for materials/upload view
+     * Ensures user_role and deleted_materials are always included
+     */
+    private function prepareUploadViewData($course_id, $materials, $additionalData = [])
+    {
+        $session = session();
+        $userRole = strtolower($session->get('user_role') ?? '');
+        $materialModel = new MaterialModel();
+        
+        // For admins and teachers, also get deleted materials
+        $deletedMaterials = [];
+        if (in_array($userRole, ['admin', 'teacher'])) {
+            $deletedMaterials = $materialModel->getDeletedMaterialsByCourse($course_id);
+        }
+        
+        return array_merge([
+            'course_id' => $course_id,
+            'materials' => $materials,
+            'deleted_materials' => $deletedMaterials,
+            'user_role' => $userRole,
+        ], $additionalData);
+    }
 
     public function upload($course_id)
     {
@@ -48,11 +73,9 @@ class Materials extends BaseController
                 $msg = !empty($errs) ? implode("\n", $errs) : 'Validation failed.';
                 log_message('error', 'Materials upload validation failed: {msg}', ['msg' => $msg]);
                 $materials = (new MaterialModel())->getMaterialsByCourse($course_id);
-                return view('materials/upload', [
-                    'course_id' => $course_id,
-                    'materials' => $materials,
+                return view('materials/upload', $this->prepareUploadViewData($course_id, $materials, [
                     'error' => $msg,
-                ]);
+                ]));
             }
 
             $file = $this->request->getFile('file');
@@ -62,40 +85,32 @@ class Materials extends BaseController
                 if (!is_dir($uploadDir)) {
                     if (!@mkdir($uploadDir, 0777, true) && !is_dir($uploadDir)) {
                         $materials = (new MaterialModel())->getMaterialsByCourse($course_id);
-                        return view('materials/upload', [
-                            'course_id' => $course_id,
-                            'materials' => $materials,
+                        return view('materials/upload', $this->prepareUploadViewData($course_id, $materials, [
                             'error' => 'Cannot create upload directory.',
-                        ]);
+                        ]));
                     }
                 }
                 if (!is_writable($uploadDir)) {
                     $materials = (new MaterialModel())->getMaterialsByCourse($course_id);
-                    return view('materials/upload', [
-                        'course_id' => $course_id,
-                        'materials' => $materials,
+                    return view('materials/upload', $this->prepareUploadViewData($course_id, $materials, [
                         'error' => 'Upload directory is not writable: ' . $uploadDir,
-                    ]);
+                    ]));
                 }
 
                 $newName = $file->getRandomName();
                 try {
                     if (!$file->move($uploadDir, $newName)) {
                         $materials = (new MaterialModel())->getMaterialsByCourse($course_id);
-                        return view('materials/upload', [
-                            'course_id' => $course_id,
-                            'materials' => $materials,
+                        return view('materials/upload', $this->prepareUploadViewData($course_id, $materials, [
                             'error' => 'Failed to move uploaded file.',
-                        ]);
+                        ]));
                     }
                 } catch (\Throwable $e) {
                     $err = method_exists($file, 'getErrorString') ? $file->getErrorString() : '';
                     $materials = (new MaterialModel())->getMaterialsByCourse($course_id);
-                    return view('materials/upload', [
-                        'course_id' => $course_id,
-                        'materials' => $materials,
+                    return view('materials/upload', $this->prepareUploadViewData($course_id, $materials, [
                         'error' => 'File move failed: ' . $e->getMessage() . ($err ? (' | ' . $err) : ''),
-                    ]);
+                    ]));
                 }
 
                 $data = [
@@ -129,68 +144,94 @@ class Materials extends BaseController
                         }
                         log_message('error', 'Materials insert failed: {msg}', ['msg' => $msg]);
                         $materials = (new MaterialModel())->getMaterialsByCourse($course_id);
-                        return view('materials/upload', [
-                            'course_id' => $course_id,
-                            'materials' => $materials,
+                        return view('materials/upload', $this->prepareUploadViewData($course_id, $materials, [
                             'error' => $msg,
-                        ]);
+                        ]));
                     }
                     
                     log_message('info', 'Material inserted successfully with ID: {id}', ['id' => $insertID]);
+                    
+                    // Get course and file info for notifications
+                    $courseTitle = $courseRow['title'] ?? 'Course';
+                    $fileName = $file->getClientName();
+                    
+                    // ✅ Create notification for the admin/teacher who uploaded the material
+                    try {
+                        $notificationModel = new NotificationModel();
+                        $uploaderId = $session->get('user_id');
+                        $uploaderRole = strtolower($session->get('user_role') ?? '');
+                        if ($uploaderId) {
+                            $uploaderNotificationId = $notificationModel->createNotification(
+                                (int)$uploaderId,
+                                "You have successfully uploaded material '{$fileName}' for '{$courseTitle}'."
+                            );
+                            if ($uploaderNotificationId) {
+                                log_message('info', "{$uploaderRole} notification created successfully for material upload. {$uploaderRole} ID: {$uploaderId}, Notification ID: {$uploaderNotificationId}");
+                            } else {
+                                log_message('warning', "{$uploaderRole} notification creation returned false for {$uploaderRole} ID: {$uploaderId}");
+                            }
+                        }
+                    } catch (\Exception $uploaderNotifError) {
+                        log_message('warning', 'Uploader notification creation failed: ' . $uploaderNotifError->getMessage());
+                    }
+                    
+                    // ✅ Create notifications for all enrolled students
+                    try {
+                        $notificationModel = new NotificationModel();
+                        $enrollmentModel = new EnrollmentModel();
+                        $enrolledStudents = $enrollmentModel->getEnrollmentsByCourse($course_id);
+                        
+                        $notificationCount = 0;
+                        foreach ($enrolledStudents as $enrollment) {
+                            $studentId = isset($enrollment['user_id']) ? (int)$enrollment['user_id'] : null;
+                            if ($studentId) {
+                                $notificationId = $notificationModel->createNotification(
+                                    $studentId,
+                                    "New material '{$fileName}' has been uploaded for {$courseTitle}!"
+                                );
+                                if ($notificationId) {
+                                    $notificationCount++;
+                                }
+                            }
+                        }
+                        log_message('info', "Created {$notificationCount} notifications for enrolled students in course {$course_id}");
+                    } catch (\Exception $notifError) {
+                        log_message('error', 'Student notification creation failed: ' . $notifError->getMessage());
+                        log_message('error', 'Notification error trace: ' . $notifError->getTraceAsString());
+                    }
                 } catch (\Throwable $e) {
                     log_message('error', 'Materials upload DB error: {err}', ['err' => $e->getMessage()]);
                     $materials = (new MaterialModel())->getMaterialsByCourse($course_id);
-                    return view('materials/upload', [
-                        'course_id' => $course_id,
-                        'materials' => $materials,
+                    return view('materials/upload', $this->prepareUploadViewData($course_id, $materials, [
                         'error' => 'Database error: ' . $e->getMessage(),
-                    ]);
+                    ]));
                 }
                 log_message('info', 'Material upload completed successfully');
                 $materials = (new MaterialModel())->getMaterialsByCourse($course_id);
                 log_message('info', 'Retrieved {count} materials for course {id}', ['count' => count($materials), 'id' => $course_id]);
-                return view('materials/upload', [
-                    'course_id' => $course_id,
-                    'materials' => $materials,
+                return view('materials/upload', $this->prepareUploadViewData($course_id, $materials, [
                     'success' => 'Material uploaded successfully. Insert ID: ' . ($insertID ?? 'unknown'),
-                ]);
+                ]));
             }
 
             $upErr = $file ? ($file->getErrorString() . ' (code ' . $file->getError() . ')') : 'No file instance available';
             $materials = (new MaterialModel())->getMaterialsByCourse($course_id);
-            return view('materials/upload', [
-                'course_id' => $course_id,
-                'materials' => $materials,
+            return view('materials/upload', $this->prepareUploadViewData($course_id, $materials, [
                 'error' => 'Invalid file upload: ' . $upErr,
-            ]);
+            ]));
             
             } catch (\Throwable $uploadEx) {
                 log_message('error', 'FATAL upload error: {err}', ['err' => $uploadEx->getMessage() . ' | ' . $uploadEx->getTraceAsString()]);
                 $materials = (new MaterialModel())->getMaterialsByCourse($course_id);
-                return view('materials/upload', [
-                    'course_id' => $course_id,
-                    'materials' => $materials,
+                return view('materials/upload', $this->prepareUploadViewData($course_id, $materials, [
                     'error' => 'FATAL ERROR: ' . $uploadEx->getMessage(),
-                ]);
+                ]));
             }
         }
 
         // GET: show form and list existing materials
-        $userRole = strtolower($session->get('user_role') ?? '');
         $materials = $materialModel->getMaterialsByCourse($course_id);
-        
-        // For admins, also get deleted materials
-        $deletedMaterials = [];
-        if ($userRole === 'admin') {
-            $deletedMaterials = $materialModel->getDeletedMaterialsByCourse($course_id);
-        }
-        
-        return view('materials/upload', [
-            'course_id' => $course_id,
-            'materials' => $materials,
-            'deleted_materials' => $deletedMaterials,
-            'user_role' => $userRole,
-        ]);
+        return view('materials/upload', $this->prepareUploadViewData($course_id, $materials));
     }
 
     public function delete($material_id)
@@ -209,7 +250,11 @@ class Materials extends BaseController
         // Soft delete: Set status to 'deleted' instead of deleting the file and record
         // The file is preserved so it can be restored later
         if ($materialModel->softDelete($material_id)) {
-            return redirect()->back()->with('success', 'Material deleted successfully. It can be restored by admin.');
+            $userRole = strtolower(session()->get('user_role') ?? '');
+            $message = in_array($userRole, ['admin', 'teacher']) 
+                ? 'Material deleted successfully. It can be restored from the deleted materials section below.'
+                : 'Material deleted successfully. It can be restored by admin or teacher.';
+            return redirect()->back()->with('success', $message);
         } else {
             return redirect()->back()->with('error', 'Failed to delete material.');
         }
@@ -222,10 +267,10 @@ class Materials extends BaseController
             return redirect()->to(base_url('login'));
         }
 
-        // Only admins can restore materials
+        // Admins and teachers can restore materials
         $userRole = strtolower($session->get('user_role') ?? '');
-        if ($userRole !== 'admin') {
-            return redirect()->back()->with('error', 'Only administrators can restore materials.');
+        if (!in_array($userRole, ['admin', 'teacher'])) {
+            return redirect()->back()->with('error', 'Only administrators and teachers can restore materials.');
         }
 
         $materialModel = new MaterialModel();
@@ -239,8 +284,34 @@ class Materials extends BaseController
             return redirect()->back()->with('error', 'Material is not deleted, so it cannot be restored.');
         }
 
+        // Get course info for notification
+        $db = \Config\Database::connect();
+        $course = $db->table('courses')->where('id', $material['course_id'])->get()->getRowArray();
+        $courseTitle = $course ? $course['title'] : 'Course';
+        $fileName = $material['file_name'] ?? 'Material';
+
         // Restore: Set status back to 'active'
         if ($materialModel->restore($material_id)) {
+            // ✅ Create notification for the admin/teacher who restored the material
+            try {
+                $notificationModel = new NotificationModel();
+                $restorerId = $session->get('user_id');
+                $restorerRole = strtolower($session->get('user_role') ?? '');
+                if ($restorerId) {
+                    $restorerNotificationId = $notificationModel->createNotification(
+                        (int)$restorerId,
+                        "You have successfully restored material '{$fileName}' for '{$courseTitle}'."
+                    );
+                    if ($restorerNotificationId) {
+                        log_message('info', "{$restorerRole} notification created successfully for material restore. {$restorerRole} ID: {$restorerId}, Notification ID: {$restorerNotificationId}");
+                    } else {
+                        log_message('warning', "{$restorerRole} notification creation returned false for {$restorerRole} ID: {$restorerId}");
+                    }
+                }
+            } catch (\Exception $restorerNotifError) {
+                log_message('warning', 'Restorer notification creation failed: ' . $restorerNotifError->getMessage());
+            }
+
             return redirect()->back()->with('success', 'Material restored successfully.');
         } else {
             return redirect()->back()->with('error', 'Failed to restore material.');

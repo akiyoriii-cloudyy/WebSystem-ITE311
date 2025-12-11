@@ -56,6 +56,49 @@
                             </select>
                         </div>
 
+                        <!-- Department and Program (for students only) -->
+                        <div id="studentFields" style="display: none;">
+                            <div class="mb-3">
+                                <label for="department_id" class="form-label">Department</label>
+                                <select class="form-select" id="department_id" name="department_id">
+                                    <option value="">-- Select Department (Optional) --</option>
+                                    <?php if (!empty($departments ?? [])): ?>
+                                        <?php foreach ($departments ?? [] as $dept): ?>
+                                            <option value="<?= esc($dept['id']) ?>">
+                                                <?= esc($dept['department_code']) ?> - <?= esc($dept['department_name']) ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
+                                </select>
+                                <small class="form-text text-muted">Required for students to enroll in department-specific courses</small>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="program_id" class="form-label">Program</label>
+                                <select class="form-select" id="program_id" name="program_id">
+                                    <option value="">-- Select Program (Optional) --</option>
+                                    <?php if (!empty($programs ?? [])): ?>
+                                        <?php foreach ($programs ?? [] as $prog): ?>
+                                            <option value="<?= esc($prog['id']) ?>" data-department-id="<?= esc($prog['department_id'] ?? '') ?>">
+                                                <?= esc($prog['program_code']) ?> - <?= esc($prog['program_name']) ?>
+                                                <?php if (!empty($prog['department_name'])): ?>
+                                                    (<?= esc($prog['department_code'] ?? '') ?>)
+                                                <?php endif; ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
+                                </select>
+                                <small class="form-text text-muted">Required for students to enroll in program-specific courses</small>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="student_id" class="form-label">Student ID</label>
+                                <input type="text" class="form-control" id="student_id" name="student_id" 
+                                       placeholder="e.g., 2024-00123" maxlength="50">
+                                <small class="form-text text-muted">Optional student identification number</small>
+                            </div>
+                        </div>
+
                         <!-- Auto-generated Password Display -->
                         <div class="mb-3">
                             <label class="form-label">Auto-Generated Password</label>
@@ -227,6 +270,9 @@ $(document).ready(function() {
                 password: autoPassword, // Auto-generated password
                 role: $('#role').val(),
                 status: $('#status').val(),
+                department_id: $('#department_id').val() || '',
+                program_id: $('#program_id').val() || '',
+                student_id: $('#student_id').val() || '',
                 throughly_token: throughlyToken,
                 [csrfTokenName]: csrfToken
             },
@@ -252,6 +298,10 @@ $(document).ready(function() {
                     $('#email').val('');
                     $('#role').val('');
                     $('#status').val('active');
+                    $('#department_id').val('');
+                    $('#program_id').val('');
+                    $('#student_id').val('');
+                    $('#studentFields').hide();
                     $('#generatedPassword').val(AUTO_PASSWORD);
                     $('#confirmPassword').val(AUTO_PASSWORD);
                     
@@ -292,6 +342,47 @@ $(document).ready(function() {
             }
         });
     });
+});
+
+// Show/hide student fields based on role
+$('#role').on('change', function() {
+    const role = $(this).val();
+    if (role === 'student') {
+        $('#studentFields').slideDown();
+    } else {
+        $('#studentFields').slideUp();
+        $('#department_id').val('');
+        $('#program_id').val('');
+        $('#student_id').val('');
+    }
+});
+
+// Filter programs based on selected department
+$('#department_id').on('change', function() {
+    const selectedDeptId = $(this).val();
+    const $programSelect = $('#program_id');
+    const $programOptions = $programSelect.find('option[data-department-id]');
+    
+    // Reset program selection
+    $programSelect.val('');
+    
+    if (!selectedDeptId) {
+        // Show all programs if no department selected
+        $programOptions.show();
+        $programSelect.find('option[value=""]').show();
+    } else {
+        // Hide all programs first
+        $programOptions.hide();
+        $programSelect.find('option[value=""]').show();
+        
+        // Show only programs that belong to selected department
+        $programOptions.each(function() {
+            const progDeptId = $(this).attr('data-department-id');
+            if (progDeptId == selectedDeptId) {
+                $(this).show();
+            }
+        });
+    }
 });
 </script>
 

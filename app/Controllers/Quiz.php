@@ -8,6 +8,7 @@ use App\Models\EnrollmentModel;
 use App\Models\AssignmentModel;
 use App\Models\GradeModel;
 use App\Models\GradingPeriodModel;
+use App\Models\NotificationModel;
 use CodeIgniter\Controller;
 
 class Quiz extends BaseController
@@ -235,6 +236,54 @@ class Quiz extends BaseController
                 if ($result) {
                     $quizId = $db->insertID();
                     log_message('info', 'Quiz created successfully with ID: ' . $quizId);
+                    
+                    // ✅ Create notifications for all enrolled students
+                    try {
+                        $notificationModel = new NotificationModel();
+                        $enrollmentModel = new EnrollmentModel();
+                        $enrolledStudents = $enrollmentModel->getEnrollmentsByCourse($courseId);
+                        $courseTitle = $course['title'] ?? 'Course';
+                        $quizTitle = $this->request->getPost('title');
+                        
+                        $notificationCount = 0;
+                        foreach ($enrolledStudents as $enrollment) {
+                            $studentId = isset($enrollment['user_id']) ? (int)$enrollment['user_id'] : null;
+                            if ($studentId) {
+                                $notificationId = $notificationModel->createNotification(
+                                    $studentId,
+                                    "New quiz '{$quizTitle}' has been posted for {$courseTitle}!"
+                                );
+                                if ($notificationId) {
+                                    $notificationCount++;
+                                }
+                            }
+                        }
+                        log_message('info', "Created {$notificationCount} notifications for quiz '{$quizTitle}' in course {$courseId}");
+                    } catch (\Exception $notifError) {
+                        log_message('error', 'Notification creation failed: ' . $notifError->getMessage());
+                        log_message('error', 'Notification error trace: ' . $notifError->getTraceAsString());
+                    }
+                    
+                    // ✅ Create notification for the teacher who created the quiz
+                    try {
+                        $session = session();
+                        $teacherId = $session->get('user_id');
+                        if ($teacherId) {
+                            $notificationModel = new NotificationModel();
+                            $teacherNotificationId = $notificationModel->createNotification(
+                                (int)$teacherId,
+                                "You have successfully created quiz '{$quizTitle}' for '{$courseTitle}'."
+                            );
+                            if ($teacherNotificationId) {
+                                log_message('info', "✅ Teacher notification created for quiz creation. Teacher ID: {$teacherId}, Notification ID: {$teacherNotificationId}");
+                            } else {
+                                log_message('warning', "❌ Teacher notification creation returned false for teacher ID: {$teacherId}");
+                            }
+                        }
+                    } catch (\Exception $teacherNotifError) {
+                        log_message('warning', 'Teacher notification creation failed: ' . $teacherNotifError->getMessage());
+                    }
+                    
                     return redirect()->to("quiz/course/{$courseId}")->with('success', 'Quiz created successfully and linked to grading system!');
                 } else {
                     $dbError = $db->error();
@@ -312,6 +361,65 @@ class Quiz extends BaseController
         ];
 
         return view('quiz/submissions', $data);
+    }
+
+    // ✅ Delete Submission (Teacher/Admin)
+    public function deleteSubmission($submissionId)
+    {
+        $session = session();
+        if (!$session->get('logged_in')) {
+            return redirect()->to('/login')->with('error', 'Please login first.');
+        }
+
+        $userRole = strtolower($session->get('user_role'));
+        if (!in_array($userRole, ['teacher', 'admin'])) {
+            return redirect()->to('/dashboard')->with('error', 'Access denied.');
+        }
+
+        $submission = $this->submissionModel->find($submissionId);
+        if (!$submission) {
+            return redirect()->back()->with('error', 'Submission not found.');
+        }
+
+        // Get quiz and course info for notification
+        $quiz = $this->quizModel->find($submission['quiz_id']);
+        if (!$quiz) {
+            return redirect()->back()->with('error', 'Quiz not found.');
+        }
+
+        $db = \Config\Database::connect();
+        $course = $db->table('courses')->where('id', $quiz['course_id'])->get()->getRowArray();
+        $courseTitle = $course ? $course['title'] : 'Course';
+        $quizTitle = $quiz['title'] ?? 'Quiz';
+
+        // Get student info
+        $userModel = new \App\Models\UserModel();
+        $student = $userModel->find($submission['user_id']);
+        $studentName = $student ? $student['name'] : 'Student';
+
+        // Delete submission
+        if ($this->submissionModel->delete($submissionId)) {
+            // ✅ Create notification for the teacher who deleted the submission
+            try {
+                $teacherId = $session->get('user_id');
+                if ($teacherId) {
+                    $notificationModel = new NotificationModel();
+                    $teacherNotificationId = $notificationModel->createNotification(
+                        (int)$teacherId,
+                        "You have successfully deleted '{$studentName}'s submission for quiz '{$quizTitle}' in '{$courseTitle}'."
+                    );
+                    if ($teacherNotificationId) {
+                        log_message('info', "✅ Teacher notification created for submission deletion. Teacher ID: {$teacherId}, Notification ID: {$teacherNotificationId}");
+                    }
+                }
+            } catch (\Exception $teacherNotifError) {
+                log_message('warning', 'Teacher notification creation failed for submission deletion: ' . $teacherNotifError->getMessage());
+            }
+
+            return redirect()->back()->with('success', 'Submission deleted successfully!');
+        } else {
+            return redirect()->back()->with('error', 'Failed to delete submission.');
+        }
     }
 
     // ✅ Grade Submission (Teacher/Admin) - Normalized with Grades Table
@@ -423,6 +531,33 @@ class Quiz extends BaseController
             // Trigger final grade calculation
             $gradeModel->updateEnrollmentFinalGrade($enrollment['id']);
 
+            // ✅ Create notification for the teacher who graded the submission
+            try {
+                $db = \Config\Database::connect();
+                $course = $db->table('courses')->where('id', $quiz['course_id'])->get()->getRowArray();
+                $courseTitle = $course ? $course['title'] : 'Course';
+                $quizTitle = $quiz['title'] ?? 'Quiz';
+                
+                // Get student info
+                $userModel = new \App\Models\UserModel();
+                $student = $userModel->find($submission['user_id']);
+                $studentName = $student ? $student['name'] : 'Student';
+                
+                $teacherId = $session->get('user_id');
+                if ($teacherId) {
+                    $notificationModel = new NotificationModel();
+                    $teacherNotificationId = $notificationModel->createNotification(
+                        (int)$teacherId,
+                        "You have successfully graded '{$studentName}'s submission for quiz '{$quizTitle}' in '{$courseTitle}'."
+                    );
+                    if ($teacherNotificationId) {
+                        log_message('info', "✅ Teacher notification created for grading. Teacher ID: {$teacherId}, Notification ID: {$teacherNotificationId}");
+                    }
+                }
+            } catch (\Exception $teacherNotifError) {
+                log_message('warning', 'Teacher notification creation failed for grading: ' . $teacherNotifError->getMessage());
+            }
+
             return $this->response->setJSON([
                 'status' => 'success',
                 'message' => 'Submission graded successfully and grade recorded in system!',
@@ -455,17 +590,47 @@ class Quiz extends BaseController
             return redirect()->back()->with('error', 'Quiz not found.');
         }
 
+        // Get course and quiz info for notification
+        $db = \Config\Database::connect();
+        $course = $db->table('courses')->where('id', $quiz['course_id'])->get()->getRowArray();
+        $courseTitle = $course ? $course['title'] : 'Course';
+        $quizTitle = $quiz['title'] ?? 'Quiz';
+        $assignmentDeleted = false;
+        
         // Delete associated assignment if exists
         if (!empty($quiz['assignment_id'])) {
             $assignmentModel = new AssignmentModel();
             try {
                 $assignmentModel->delete($quiz['assignment_id']);
+                $assignmentDeleted = true;
             } catch (\Exception $e) {
                 log_message('error', 'Failed to delete assignment: ' . $e->getMessage());
             }
         }
 
         if ($this->quizModel->delete($quizId)) {
+            // ✅ Create notification for the teacher who deleted the quiz
+            try {
+                $session = session();
+                $teacherId = $session->get('user_id');
+                if ($teacherId) {
+                    $notificationModel = new NotificationModel();
+                    $message = $assignmentDeleted 
+                        ? "You have successfully deleted quiz '{$quizTitle}' and its associated assignment from '{$courseTitle}'."
+                        : "You have successfully deleted quiz '{$quizTitle}' from '{$courseTitle}'.";
+                    
+                    $teacherNotificationId = $notificationModel->createNotification(
+                        (int)$teacherId,
+                        $message
+                    );
+                    if ($teacherNotificationId) {
+                        log_message('info', "✅ Teacher notification created for quiz deletion. Teacher ID: {$teacherId}, Notification ID: {$teacherNotificationId}");
+                    }
+                }
+            } catch (\Exception $teacherNotifError) {
+                log_message('warning', 'Teacher notification creation failed for quiz deletion: ' . $teacherNotifError->getMessage());
+            }
+            
             return redirect()->back()->with('success', 'Quiz and associated assignment deleted successfully!');
         } else {
             return redirect()->back()->with('error', 'Failed to delete quiz.');
@@ -690,6 +855,36 @@ class Quiz extends BaseController
                 'status' => 'error',
                 'message' => 'Failed to submit quiz.'
             ]);
+        }
+
+        // ✅ Create notification for the teacher when a student submits a quiz
+        try {
+            $db = \Config\Database::connect();
+            $course = $db->table('courses')->where('id', $quiz['course_id'])->get()->getRowArray();
+            $courseTitle = $course ? $course['title'] : 'Course';
+            $quizTitle = $quiz['title'] ?? 'Quiz';
+            
+            // Get student info
+            $userModel = new \App\Models\UserModel();
+            $student = $userModel->find($userId);
+            $studentName = $student ? $student['name'] : 'Student';
+            
+            // Get teacher (instructor) for the course
+            $teacherId = $course['instructor_id'] ?? null;
+            if ($teacherId) {
+                $notificationModel = new NotificationModel();
+                $teacherNotificationId = $notificationModel->createNotification(
+                    (int)$teacherId,
+                    "'{$studentName}' has submitted quiz '{$quizTitle}' for '{$courseTitle}'."
+                );
+                if ($teacherNotificationId) {
+                    log_message('info', "✅ Teacher notification created for quiz submission. Teacher ID: {$teacherId}, Notification ID: {$teacherNotificationId}");
+                } else {
+                    log_message('warning', "❌ Teacher notification creation returned false for teacher ID: {$teacherId}");
+                }
+            }
+        } catch (\Exception $teacherNotifError) {
+            log_message('warning', 'Teacher notification creation failed for quiz submission: ' . $teacherNotifError->getMessage());
         }
 
         return $this->response->setJSON([

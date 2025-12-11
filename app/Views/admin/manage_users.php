@@ -78,6 +78,10 @@
                                                 <button type="button" 
                                                         class="btn btn-sm btn-primary edit-user-btn" 
                                                         data-user-id="<?= $u['id'] ?>"
+                                                        data-user-role="<?= esc($u['role']) ?>"
+                                                        data-department-id="<?= esc($u['department_id'] ?? '') ?>"
+                                                        data-program-id="<?= esc($u['program_id'] ?? '') ?>"
+                                                        data-student-id="<?= esc($u['student_id'] ?? '') ?>"
                                                         title="Edit User"
                                                         style="cursor: pointer; z-index: 1; position: relative;">
                                                     Edit
@@ -157,6 +161,46 @@
                                required
                                autocomplete="off"
                                spellcheck="false">
+                    </div>
+                    
+                    <!-- Department and Program (for students only) -->
+                    <div id="editStudentFields" style="display: none;">
+                        <div class="mb-3">
+                            <label for="edit_department_id" class="form-label">Department</label>
+                            <select class="form-select" id="edit_department_id" name="department_id">
+                                <option value="">-- Select Department (Optional) --</option>
+                                <?php if (!empty($departments ?? [])): ?>
+                                    <?php foreach ($departments ?? [] as $dept): ?>
+                                        <option value="<?= esc($dept['id']) ?>">
+                                            <?= esc($dept['department_code']) ?> - <?= esc($dept['department_name']) ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="edit_program_id" class="form-label">Program</label>
+                            <select class="form-select" id="edit_program_id" name="program_id">
+                                <option value="">-- Select Program (Optional) --</option>
+                                <?php if (!empty($programs ?? [])): ?>
+                                    <?php foreach ($programs ?? [] as $prog): ?>
+                                        <option value="<?= esc($prog['id']) ?>" data-department-id="<?= esc($prog['department_id'] ?? '') ?>">
+                                            <?= esc($prog['program_code']) ?> - <?= esc($prog['program_name']) ?>
+                                            <?php if (!empty($prog['department_name'])): ?>
+                                                (<?= esc($prog['department_code'] ?? '') ?>)
+                                            <?php endif; ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="edit_student_id" class="form-label">Student ID</label>
+                            <input type="text" class="form-control" id="edit_student_id" name="student_id" 
+                                   placeholder="e.g., 2024-00123" maxlength="50">
+                        </div>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -443,8 +487,12 @@
                 const row = $btn.closest('tr');
                 const userName = row.find('td:eq(1)').text().trim();
                 const userEmail = row.find('td:eq(2)').text().trim();
+                const userRole = $btn.attr('data-user-role') || '';
+                const departmentId = $btn.attr('data-department-id') || '';
+                const programId = $btn.attr('data-program-id') || '';
+                const studentId = $btn.attr('data-student-id') || '';
                 
-                console.log('User data:', { name: userName, email: userEmail });
+                console.log('User data:', { name: userName, email: userEmail, role: userRole, department_id: departmentId, program_id: programId });
                 
                 currentEditUserId = userId;
                 
@@ -465,6 +513,32 @@
                 // Populate form
                 $('#edit_name').val(userName.trim());
                 $('#edit_email').val(userEmail);
+                
+                // Populate department/program fields for students
+                if (userRole && userRole.toLowerCase() === 'student') {
+                    $('#edit_department_id').val(departmentId);
+                    $('#edit_program_id').val(programId);
+                    $('#edit_student_id').val(studentId);
+                    $('#editStudentFields').show();
+                    
+                    // Filter programs based on selected department
+                    if (departmentId) {
+                        $('#edit_program_id option').each(function() {
+                            const progDeptId = $(this).attr('data-department-id');
+                            if (progDeptId && progDeptId != departmentId) {
+                                $(this).hide();
+                            } else {
+                                $(this).show();
+                            }
+                        });
+                    }
+                } else {
+                    $('#edit_department_id').val('');
+                    $('#edit_program_id').val('');
+                    $('#edit_student_id').val('');
+                    $('#editStudentFields').hide();
+                }
+                
                 $('#editUserModalLabel').text('Edit User: ' + userName.trim());
                 
                 // Show modal
@@ -535,6 +609,9 @@
                 
                 const name = $('#edit_name').val().trim();
                 const email = $('#edit_email').val().trim();
+                const department_id = $('#edit_department_id').val() || '';
+                const program_id = $('#edit_program_id').val() || '';
+                const student_id = $('#edit_student_id').val() || '';
                 
                 if (!name || !email) {
                     alert('Name and email are required.');
@@ -586,6 +663,9 @@
                 const formData = {
                     name: name,
                     email: email,
+                    department_id: department_id,
+                    program_id: program_id,
+                    student_id: student_id,
                     throughly_token: $('#edit_throughly_token').val(),
                     [csrfTokenName]: csrfToken
                 };
@@ -667,10 +747,39 @@
             });
             
             // Reset form when modal is hidden
+            // Filter programs based on selected department in edit modal
+            $('#edit_department_id').on('change', function() {
+                const selectedDeptId = $(this).val();
+                const $programSelect = $('#edit_program_id');
+                const $programOptions = $programSelect.find('option[data-department-id]');
+                
+                // Reset program selection
+                $programSelect.val('');
+                
+                if (!selectedDeptId) {
+                    // Show all programs if no department selected
+                    $programOptions.show();
+                    $programSelect.find('option[value=""]').show();
+                } else {
+                    // Hide all programs first
+                    $programOptions.hide();
+                    $programSelect.find('option[value=""]').show();
+                    
+                    // Show only programs that belong to selected department
+                    $programOptions.each(function() {
+                        const progDeptId = $(this).attr('data-department-id');
+                        if (progDeptId == selectedDeptId) {
+                            $(this).show();
+                        }
+                    });
+                }
+            });
+
             $('#editUserModal').on('hidden.bs.modal', function() {
                 currentEditUserId = null;
                 editFormSubmitting = false;
                 $('#editUserForm')[0].reset();
+                $('#editStudentFields').hide();
                 $('#editUserForm').find('button[type="submit"]').prop('disabled', false).text('Save Changes');
             });
         });

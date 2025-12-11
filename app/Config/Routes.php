@@ -67,6 +67,8 @@ $routes->group('', ['filter' => 'roleauth'], function ($routes) {
         $routes->get('courses', 'Admin::manageCourses');
         $routes->get('manage-courses', 'Admin::manageCourses');
         $routes->post('courses/create', 'Admin::createCourse');
+        $routes->get('courses/get/(:num)', 'Admin::getCourse/$1');
+        $routes->post('courses/update/(:num)', 'Admin::updateCourse/$1');
         $routes->post('courses/update-course-number', 'Admin::updateCourseNumber');
 
         // Materials Upload (Admin)
@@ -137,6 +139,7 @@ $routes->group('', ['filter' => 'roleauth'], function ($routes) {
         // Grading Management
         $routes->match(['get', 'post'], 'courses/(:num)/assignments', 'Teacher::assignments/$1');
         $routes->match(['get', 'post'], 'assignments/(:num)/grade', 'Teacher::gradeAssignment/$1');
+        $routes->get('assignments/(:num)/delete', 'Teacher::deleteAssignment/$1');
         
     });
 
@@ -156,6 +159,9 @@ $routes->group('', ['filter' => 'roleauth'], function ($routes) {
         $routes->get('quiz/take/(:num)', 'Quiz::take/$1');
         $routes->post('quiz/submit', 'Quiz::submit');
         $routes->get('quiz/result/(:num)', 'Quiz::viewResult/$1');
+        
+        // Assignment Management (Student)
+        $routes->get('assignments/course/(:num)', 'Teacher::studentAssignments/$1');
     });
 
     // --------------------
@@ -177,6 +183,7 @@ $routes->group('', ['filter' => 'roleauth'], function ($routes) {
     $routes->get('quiz/(:num)/submissions', 'Quiz::submissions/$1', ['filter' => 'roleauth:teacher,admin']);
     $routes->post('quiz/grade-submission', 'Quiz::gradeSubmission', ['filter' => 'roleauth:teacher,admin']);
     $routes->get('quiz/delete/(:num)', 'Quiz::delete/$1', ['filter' => 'roleauth:teacher,admin']);
+    $routes->get('quiz/submission/delete/(:num)', 'Quiz::deleteSubmission/$1', ['filter' => 'roleauth:teacher,admin']);
 
     // --------------------
     // Materials (Delete/Download)

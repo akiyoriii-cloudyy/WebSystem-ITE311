@@ -56,7 +56,7 @@ $backUrl = base_url($role === 'admin' ? 'admin/manage-courses' : 'teacher/course
     </table>
   </div>
 
-  <?php if ($user_role === 'admin' && !empty($deleted_materials)): ?>
+  <?php if (in_array($user_role, ['admin', 'teacher']) && !empty($deleted_materials)): ?>
     <h5 class="mt-4 text-muted">Deleted Materials (Restore Available)</h5>
     <div class="table-responsive">
       <table class="table table-bordered table-striped table-secondary">
@@ -84,3 +84,18 @@ $backUrl = base_url($role === 'admin' ? 'admin/manage-courses' : 'teacher/course
     </div>
   <?php endif; ?>
 </div>
+
+<script>
+// Refresh notifications when success message is shown
+document.addEventListener('DOMContentLoaded', function() {
+    const successAlert = document.querySelector('.alert-success');
+    if (successAlert) {
+        // Refresh notifications after a short delay to ensure they're created
+        setTimeout(function() {
+            if (typeof fetchNotifications === 'function') {
+                fetchNotifications();
+            }
+        }, 500);
+    }
+});
+</script>

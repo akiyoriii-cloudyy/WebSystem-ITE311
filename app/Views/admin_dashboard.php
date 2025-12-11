@@ -174,6 +174,9 @@
                                         <td><?= esc($c['instructor_name'] ?? 'Not Assigned') ?></td>
                                         <td>
                                             <a class="btn btn-sm btn-primary" href="<?= base_url('admin/course/' . $c['id'] . '/upload') ?>">Materials</a>
+                                            <button type="button" class="btn btn-sm btn-warning" onclick="editCourse(<?= $c['id'] ?>)" title="Edit Course">
+                                                <i class="bi bi-pencil"></i> Edit
+                                            </button>
                                             <a class="btn btn-sm btn-info" href="<?= site_url('admin/courses') ?>">Manage</a>
                                         </td>
                                     </tr>
@@ -535,6 +538,314 @@ $(document).ready(function() {
 
         $('#studentsList').html(listHtml);
         $('#studentsModal').modal('show');
+    });
+});
+
+// Edit Course Function
+function editCourse(courseId) {
+    // Fetch course data
+    fetch('<?= site_url('admin/courses/get') ?>/' + courseId, {
+        method: 'GET',
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'Accept': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success' && data.course) {
+            const course = data.course;
+            const dropdowns = data.dropdowns || {};
+            
+            // Populate dropdowns
+            if (dropdowns.teachers) {
+                const instructorSelect = document.getElementById('edit_course_instructor_id');
+                instructorSelect.innerHTML = '<option value="">-- Select Instructor (Optional) --</option>';
+                dropdowns.teachers.forEach(teacher => {
+                    const option = document.createElement('option');
+                    option.value = teacher.id;
+                    option.textContent = teacher.name + ' (' + teacher.email + ')';
+                    instructorSelect.appendChild(option);
+                });
+            }
+            
+            if (dropdowns.acadYears) {
+                const acadYearSelect = document.getElementById('edit_course_acad_year_id');
+                acadYearSelect.innerHTML = '<option value="">-- Select Academic Year (Optional) --</option>';
+                dropdowns.acadYears.forEach(year => {
+                    const option = document.createElement('option');
+                    option.value = year.id;
+                    option.textContent = year.acad_year;
+                    acadYearSelect.appendChild(option);
+                });
+            }
+            
+            if (dropdowns.semesters) {
+                const semesterSelect = document.getElementById('edit_course_semester_id');
+                semesterSelect.innerHTML = '<option value="">-- Select Semester (Optional) --</option>';
+                dropdowns.semesters.forEach(semester => {
+                    const option = document.createElement('option');
+                    option.value = semester.id;
+                    option.textContent = semester.semester + (semester.acad_year ? ' (' + semester.acad_year + ')' : '');
+                    semesterSelect.appendChild(option);
+                });
+            }
+            
+            if (dropdowns.terms) {
+                const termSelect = document.getElementById('edit_course_term_id');
+                termSelect.innerHTML = '<option value="">-- Select Term (Optional) --</option>';
+                dropdowns.terms.forEach(term => {
+                    const option = document.createElement('option');
+                    option.value = term.id;
+                    option.setAttribute('data-semester-id', term.semester_id || '');
+                    option.textContent = term.term + (term.semester ? ' - ' + term.semester : '');
+                    termSelect.appendChild(option);
+                });
+            }
+            
+            if (dropdowns.departments) {
+                const deptSelect = document.getElementById('edit_course_department_id');
+                deptSelect.innerHTML = '<option value="">-- Select Department (Optional) --</option>';
+                dropdowns.departments.forEach(dept => {
+                    const option = document.createElement('option');
+                    option.value = dept.id;
+                    option.textContent = dept.department_code + ' - ' + dept.department_name;
+                    deptSelect.appendChild(option);
+                });
+            }
+            
+            if (dropdowns.programs) {
+                const progSelect = document.getElementById('edit_course_program_id');
+                progSelect.innerHTML = '<option value="">-- Select Program (Optional) --</option>';
+                dropdowns.programs.forEach(prog => {
+                    const option = document.createElement('option');
+                    option.value = prog.id;
+                    option.setAttribute('data-department-id', prog.department_id || '');
+                    option.textContent = prog.program_code + ' - ' + prog.program_name;
+                    progSelect.appendChild(option);
+                });
+            }
+            
+            // Populate form fields
+            document.getElementById('edit_course_id').value = course.id;
+            document.getElementById('edit_course_title').value = course.title || '';
+            document.getElementById('edit_course_number').value = course.course_number || '';
+            document.getElementById('edit_course_description').value = course.description || '';
+            document.getElementById('edit_course_units').value = course.units || '';
+            document.getElementById('edit_course_instructor_id').value = course.instructor_id || '';
+            document.getElementById('edit_course_acad_year_id').value = course.acad_year_id || '';
+            document.getElementById('edit_course_semester_id').value = course.semester_id || '';
+            document.getElementById('edit_course_term_id').value = course.term_id || '';
+            document.getElementById('edit_course_department_id').value = course.department_id || '';
+            document.getElementById('edit_course_program_id').value = course.program_id || '';
+            
+            // Show modal
+            const modal = new bootstrap.Modal(document.getElementById('editCourseModal'));
+            modal.show();
+        } else {
+            alert('Failed to load course data: ' + (data.message || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Failed to load course data.');
+    });
+}
+</script>
+
+<!-- Edit Course Modal -->
+<div class="modal fade" id="editCourseModal" tabindex="-1" aria-labelledby="editCourseModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editCourseModalLabel">Edit Course</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="editCourseForm">
+                <?= csrf_field() ?>
+                <input type="hidden" id="edit_course_id" name="course_id">
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_course_title" class="form-label">Course Title <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="edit_course_title" name="title" required 
+                                   placeholder="e.g., ITE 321 - Web Application Development" maxlength="255">
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label for="edit_course_number" class="form-label">Course Number/Code</label>
+                            <input type="text" class="form-control" id="edit_course_number" name="course_number" 
+                                   placeholder="e.g., ITE321, CS101" maxlength="50">
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label for="edit_course_units" class="form-label">Units</label>
+                            <input type="number" class="form-control" id="edit_course_units" name="units" 
+                                   placeholder="e.g., 3" min="0" max="10" step="1">
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="edit_course_description" class="form-label">Description</label>
+                        <textarea class="form-control" id="edit_course_description" name="description" rows="3" 
+                                  placeholder="Enter course description..."></textarea>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_course_instructor_id" class="form-label">Instructor</label>
+                            <select class="form-select" id="edit_course_instructor_id" name="instructor_id">
+                                <option value="">-- Select Instructor (Optional) --</option>
+                                <?php if (!empty($teachers ?? [])): ?>
+                                    <?php foreach ($teachers ?? [] as $teacher): ?>
+                                        <option value="<?= esc($teacher['id']) ?>"><?= esc($teacher['name']) ?> (<?= esc($teacher['email']) ?>)</option>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_course_acad_year_id" class="form-label">Academic Year</label>
+                            <select class="form-select" id="edit_course_acad_year_id" name="acad_year_id">
+                                <option value="">-- Select Academic Year (Optional) --</option>
+                                <?php if (!empty($acadYears ?? [])): ?>
+                                    <?php foreach ($acadYears ?? [] as $year): ?>
+                                        <option value="<?= esc($year['id']) ?>"><?= esc($year['acad_year']) ?></option>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_course_semester_id" class="form-label">Semester</label>
+                            <select class="form-select" id="edit_course_semester_id" name="semester_id">
+                                <option value="">-- Select Semester (Optional) --</option>
+                                <?php if (!empty($semesters ?? [])): ?>
+                                    <?php foreach ($semesters ?? [] as $semester): ?>
+                                        <option value="<?= esc($semester['id']) ?>">
+                                            <?= esc($semester['semester']) ?>
+                                            <?php if (!empty($semester['acad_year'])): ?>
+                                                (<?= esc($semester['acad_year']) ?>)
+                                            <?php endif; ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_course_term_id" class="form-label">Term</label>
+                            <select class="form-select" id="edit_course_term_id" name="term_id">
+                                <option value="">-- Select Term (Optional) --</option>
+                                <?php if (!empty($terms ?? [])): ?>
+                                    <?php foreach ($terms ?? [] as $term): ?>
+                                        <option value="<?= esc($term['id']) ?>" data-semester-id="<?= esc($term['semester_id'] ?? '') ?>">
+                                            <?= esc($term['term']) ?>
+                                            <?php if (!empty($term['semester'])): ?>
+                                                - <?= esc($term['semester']) ?>
+                                            <?php endif; ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_course_department_id" class="form-label">Department</label>
+                            <select class="form-select" id="edit_course_department_id" name="department_id">
+                                <option value="">-- Select Department (Optional) --</option>
+                                <?php if (!empty($departments ?? [])): ?>
+                                    <?php foreach ($departments ?? [] as $dept): ?>
+                                        <option value="<?= esc($dept['id']) ?>">
+                                            <?= esc($dept['department_code']) ?> - <?= esc($dept['department_name']) ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_course_program_id" class="form-label">Program</label>
+                            <select class="form-select" id="edit_course_program_id" name="program_id">
+                                <option value="">-- Select Program (Optional) --</option>
+                                <?php if (!empty($programs ?? [])): ?>
+                                    <?php foreach ($programs ?? [] as $prog): ?>
+                                        <option value="<?= esc($prog['id']) ?>" data-department-id="<?= esc($prog['department_id'] ?? '') ?>">
+                                            <?= esc($prog['program_code']) ?> - <?= esc($prog['program_name']) ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">
+                        <span class="spinner-border spinner-border-sm d-none" role="status"></span>
+                        Update Course
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+// Edit Course Form Submit
+document.getElementById('editCourseForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const form = this;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const spinner = submitBtn.querySelector('.spinner-border');
+    const courseId = document.getElementById('edit_course_id').value;
+    
+    submitBtn.disabled = true;
+    spinner.classList.remove('d-none');
+    
+    const formData = new FormData(form);
+    
+    fetch('<?= site_url('admin/courses/update') ?>/' + courseId, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        submitBtn.disabled = false;
+        spinner.classList.add('d-none');
+        
+        if (data.status === 'success') {
+            // Refresh notifications if function exists
+            if (typeof fetchNotifications === 'function') {
+                fetchNotifications();
+            }
+            
+            // Update CSRF token
+            if (data.csrf_token && data.csrf_hash) {
+                const csrfInput = document.querySelector('input[name="' + data.csrf_token + '"]');
+                if (csrfInput) {
+                    csrfInput.value = data.csrf_hash;
+                }
+            }
+            
+            alert('✓ ' + data.message);
+            bootstrap.Modal.getInstance(document.getElementById('editCourseModal')).hide();
+            
+            // Reload page after 1 second to show updated course
+            setTimeout(() => {
+                location.reload();
+            }, 1000);
+        } else {
+            alert('✗ Error: ' + (data.message || 'Failed to update course.'));
+        }
+    })
+    .catch(error => {
+        submitBtn.disabled = false;
+        spinner.classList.add('d-none');
+        console.error('Error:', error);
+        alert('An error occurred. Please try again.');
     });
 });
 </script>

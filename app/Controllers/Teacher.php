@@ -11,6 +11,7 @@ use App\Models\GradingWeightModel;
 use App\Models\UserModel;
 use App\Models\QuizModel;
 use App\Models\SubmissionModel;
+use App\Models\NotificationModel;
 
 class Teacher extends BaseController
 {
@@ -40,11 +41,22 @@ class Teacher extends BaseController
         // Get courses assigned to this teacher
         $courses = [];
         if ($db->query("SHOW TABLES LIKE 'courses'")->getNumRows() > 0) {
-            $courses = $db->table('courses')
-                          ->where('instructor_id', $userId)
-                          ->orderBy('created_at', 'DESC')
-                          ->get()
-                          ->getResultArray();
+            try {
+                $result = $db->table('courses')
+                              ->where('instructor_id', $userId)
+                              ->orderBy('created_at', 'DESC')
+                              ->get();
+                
+                if ($result !== false && is_object($result)) {
+                    $courses = $result->getResultArray();
+                } else {
+                    $courses = [];
+                    log_message('warning', 'Failed to fetch courses for teacher ' . $userId . ': get() returned false');
+                }
+            } catch (\Exception $e) {
+                $courses = [];
+                log_message('error', 'Error fetching courses: ' . $e->getMessage());
+            }
 
             // Add enrolled student count to each course
             foreach ($courses as &$course) {
@@ -89,11 +101,17 @@ class Teacher extends BaseController
         }
 
         // Get course details (ensure it belongs to this teacher)
-        $course = $db->table('courses')
-                     ->where('id', $courseId)
-                     ->where('instructor_id', $userId)
-                     ->get()
-                     ->getRowArray();
+        try {
+            $courseResult = $db->table('courses')
+                             ->where('id', $courseId)
+                             ->where('instructor_id', $userId)
+                             ->get();
+            
+            $course = ($courseResult !== false && is_object($courseResult)) ? $courseResult->getRowArray() : null;
+        } catch (\Exception $e) {
+            log_message('error', 'Error fetching course in viewCourse: ' . $e->getMessage());
+            $course = null;
+        }
 
         if (!$course) {
             return redirect()->to('/teacher/courses')->with('error', 'Course not found or access denied.');
@@ -102,13 +120,24 @@ class Teacher extends BaseController
         // Get enrolled students
         $enrolledStudents = [];
         if ($db->query("SHOW TABLES LIKE 'enrollments'")->getNumRows() > 0) {
-            $enrolledStudents = $db->table('enrollments')
-                ->select('users.id, users.name, users.email, enrollments.created_at as enrolled_at')
-                ->join('users', 'enrollments.user_id = users.id')
-                ->where('enrollments.course_id', $courseId)
-                ->orderBy('enrollments.created_at', 'DESC')
-                ->get()
-                ->getResultArray();
+            try {
+                $result = $db->table('enrollments')
+                    ->select('users.id, users.name, users.email, enrollments.created_at as enrolled_at, enrollments.enrollment_date, enrollments.completion_status, enrollments.final_grade, users.student_id')
+                    ->join('users', 'enrollments.user_id = users.id', 'left')
+                    ->where('enrollments.course_id', $courseId)
+                    ->orderBy('enrollments.created_at', 'DESC')
+                    ->get();
+                
+                if ($result !== false && is_object($result)) {
+                    $enrolledStudents = $result->getResultArray();
+                } else {
+                    $enrolledStudents = [];
+                    log_message('warning', 'Failed to fetch enrolled students for course ' . $courseId . ': get() returned false');
+                }
+            } catch (\Exception $e) {
+                $enrolledStudents = [];
+                log_message('error', 'Error fetching enrolled students: ' . $e->getMessage());
+            }
         }
 
         $data = [
@@ -306,25 +335,113 @@ class Teacher extends BaseController
         $userId = $session->get('user_id');
 
         // Verify course ownership
-        $course = $db->table('courses')
-                     ->where('id', $courseId)
-                     ->where('instructor_id', $userId)
-                     ->get()
-                     ->getRowArray();
+        try {
+            $result = $db->table('courses')
+                         ->where('id', $courseId)
+                         ->where('instructor_id', $userId)
+                         ->get();
+            
+            if ($result === false || !is_object($result)) {
+                return redirect()->to('/teacher/courses')->with('error', 'Course not found or access denied.');
+            }
+            
+            $course = $result->getRowArray();
+        } catch (\Exception $e) {
+            log_message('error', 'Error fetching course in removeStudent: ' . $e->getMessage());
+            return redirect()->to('/teacher/courses')->with('error', 'Error accessing course.');
+        }
 
         if (!$course) {
             return redirect()->to('/teacher/courses')->with('error', 'Course not found or access denied.');
         }
 
         // Remove enrollment
-        if ($db->query("SHOW TABLES LIKE 'enrollments'")->getNumRows() > 0) {
-            $db->table('enrollments')
-               ->where('course_id', $courseId)
-               ->where('user_id', $studentId)
-               ->delete();
+        try {
+            if ($db->query("SHOW TABLES LIKE 'enrollments'")->getNumRows() > 0) {
+                // The studentId parameter could be either enrollment ID or user_id
+                // First, try to find by enrollment ID (primary key)
+                $enrollment = $db->table('enrollments')
+                                 ->where('id', $studentId)
+                                 ->where('course_id', $courseId)
+                                 ->get()
+                                 ->getRowArray();
+                
+                // If not found by enrollment ID, try by user_id
+                if (!$enrollment) {
+                    $enrollment = $db->table('enrollments')
+                                     ->where('user_id', $studentId)
+                                     ->where('course_id', $courseId)
+                                     ->get()
+                                     ->getRowArray();
+                }
+                
+                if (!$enrollment) {
+                    log_message('warning', "Enrollment not found: course_id={$courseId}, studentId={$studentId}");
+                    // Check if coming from enroll page or view page
+                    $redirectUrl = $this->request->getGet('from') === 'enroll' 
+                        ? '/teacher/courses/' . $courseId . '/enroll-students' 
+                        : '/teacher/courses/view/' . $courseId;
+                    return redirect()->to($redirectUrl)->with('error', 'Enrollment not found. Student may already be removed.');
+                }
+                
+                // Delete the enrollment using the enrollment ID (most reliable)
+                $enrollmentId = $enrollment['id'];
+                $actualUserId = $enrollment['user_id'];
+                $deleted = $db->table('enrollments')
+                               ->where('id', $enrollmentId)
+                               ->delete();
+                
+                // Check if deletion was successful (delete() returns number of affected rows)
+                if ($deleted > 0) {
+                    log_message('info', "Enrollment ID {$enrollmentId} (User ID: {$actualUserId}) successfully removed from course {$courseId} by teacher {$userId}. Affected rows: {$deleted}");
+                    
+                    // ✅ Create notification for the teacher who removed the student
+                    try {
+                        $userModel = new UserModel();
+                        $student = $userModel->find($actualUserId);
+                        $studentName = $student ? $student['name'] : 'Student';
+                        $courseTitle = $course['title'] ?? 'Course';
+                        
+                        $notificationModel = new NotificationModel();
+                        $teacherNotificationId = $notificationModel->createNotification(
+                            (int)$userId,
+                            "You have successfully removed '{$studentName}' from '{$courseTitle}'."
+                        );
+                        if ($teacherNotificationId) {
+                            log_message('info', "✅ Teacher notification created for student removal. Teacher ID: {$userId}, Notification ID: {$teacherNotificationId}");
+                        }
+                    } catch (\Exception $teacherNotifError) {
+                        log_message('warning', 'Teacher notification creation failed for student removal: ' . $teacherNotifError->getMessage());
+                    }
+                    
+                    // Check if coming from enroll page or view page
+                    $redirectUrl = $this->request->getGet('from') === 'enroll' 
+                        ? '/teacher/courses/' . $courseId . '/enroll-students' 
+                        : '/teacher/courses/view/' . $courseId;
+                    return redirect()->to($redirectUrl)->with('success', '✅ Student removed from course!');
+                } else {
+                    log_message('error', "Failed to delete enrollment: course_id={$courseId}, user_id={$studentId}. Delete returned: {$deleted}");
+                    // Check if coming from enroll page or view page
+                    $redirectUrl = $this->request->getGet('from') === 'enroll' 
+                        ? '/teacher/courses/' . $courseId . '/enroll-students' 
+                        : '/teacher/courses/view/' . $courseId;
+                    return redirect()->to($redirectUrl)->with('error', 'Failed to remove student from course. Please try again.');
+                }
+            } else {
+                log_message('error', 'Enrollments table does not exist');
+                $redirectUrl = $this->request->getGet('from') === 'enroll' 
+                    ? '/teacher/courses/' . $courseId . '/enroll-students' 
+                    : '/teacher/courses/view/' . $courseId;
+                return redirect()->to($redirectUrl)->with('error', 'Enrollments table not found.');
+            }
+        } catch (\Exception $e) {
+            log_message('error', 'Error removing enrollment: ' . $e->getMessage());
+            log_message('error', 'Stack trace: ' . $e->getTraceAsString());
+            $redirectUrl = $this->request->getGet('from') === 'enroll' 
+                ? '/teacher/courses/' . $courseId . '/enroll-students' 
+                : '/teacher/courses/view/' . $courseId;
+            return redirect()->to($redirectUrl)->with('error', 'Error removing student from course: ' . $e->getMessage());
         }
-
-        return redirect()->to('/teacher/courses/view/' . $courseId)->with('success', '✅ Student removed from course!');
     }
 
     // ✅ Enroll Students (Teacher - for their assigned courses)
@@ -386,11 +503,17 @@ class Teacher extends BaseController
             $userId = $session->get('user_id');
 
             // Verify course ownership
-            $course = $db->table('courses')
-                         ->where('id', $courseId)
-                         ->where('instructor_id', $userId)
-                         ->get()
-                         ->getRowArray();
+            try {
+                $courseResult = $db->table('courses')
+                                 ->where('id', $courseId)
+                                 ->where('instructor_id', $userId)
+                                 ->get();
+                
+                $course = ($courseResult !== false && is_object($courseResult)) ? $courseResult->getRowArray() : null;
+            } catch (\Exception $e) {
+                log_message('error', 'Error fetching course in enrollStudent: ' . $e->getMessage());
+                $course = null;
+            }
 
             if (!$course) {
                 return $this->response->setJSON([
@@ -417,6 +540,76 @@ class Teacher extends BaseController
                 ]);
             }
 
+            // ✅ Validate department/program match for students
+            $userModel = new UserModel();
+            $student = $userModel->find($studentId);
+            $db = \Config\Database::connect();
+            
+            $courseResult = $db->table('courses')->where('id', $courseId)->get();
+            $course = ($courseResult !== false && is_object($courseResult)) ? $courseResult->getRowArray() : null;
+            
+            if (!$student) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Student not found'
+                ]);
+            }
+            
+            if (!$course) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Course not found'
+                ]);
+            }
+            
+            if (strtolower($student['role']) === 'student') {
+                $userDeptId = $student['department_id'] ?? null;
+                $userProgId = $student['program_id'] ?? null;
+                $courseDeptId = $course['department_id'] ?? null;
+                $courseProgId = $course['program_id'] ?? null;
+                
+                // If course has department/program specified, student must match
+                if ($courseDeptId || $courseProgId) {
+                    $errors = [];
+                    
+                    // Check department match
+                    if ($courseDeptId && $userDeptId != $courseDeptId) {
+                        $deptModel = new \App\Models\DepartmentModel();
+                        $userDept = $deptModel->find($userDeptId);
+                        $courseDept = $deptModel->find($courseDeptId);
+                        $userDeptName = $userDept ? $userDept['department_name'] : 'Unknown';
+                        $courseDeptName = $courseDept ? $courseDept['department_name'] : 'Unknown';
+                        $errors[] = "Student belongs to '{$userDeptName}' but course belongs to '{$courseDeptName}'.";
+                    }
+                    
+                    // Check program match (if both course and student have programs)
+                    if ($courseProgId && $userProgId && $userProgId != $courseProgId) {
+                        $progModel = new \App\Models\ProgramModel();
+                        $userProg = $progModel->find($userProgId);
+                        $courseProg = $progModel->find($courseProgId);
+                        $userProgName = $userProg ? $userProg['program_name'] : 'Unknown';
+                        $courseProgName = $courseProg ? $courseProg['program_name'] : 'Unknown';
+                        $errors[] = "Student is in '{$userProgName}' program but course is for '{$courseProgName}' program.";
+                    }
+                    
+                    // If student doesn't have department/program set, but course requires it
+                    if ($courseDeptId && !$userDeptId) {
+                        $errors[] = "Student must have a department assigned. Please update student's department first.";
+                    }
+                    
+                    if ($courseProgId && !$userProgId) {
+                        $errors[] = "Student must have a program assigned. Please update student's program first.";
+                    }
+                    
+                    if (!empty($errors)) {
+                        return $this->response->setJSON([
+                            'status' => 'error',
+                            'message' => 'Enrollment failed: ' . implode(' ', $errors)
+                        ]);
+                    }
+                }
+            }
+
             // Enroll student
             try {
                 $enrollmentModel->enrollUser([
@@ -426,6 +619,43 @@ class Teacher extends BaseController
                     'enrollment_date' => date('Y-m-d H:i:s'),
                     'completion_status' => 'ENROLLED',
                 ]);
+
+                // Get student and course info for notifications
+                $studentName = $student ? $student['name'] : 'Student';
+                $courseTitle = $course['title'] ?? 'Course';
+                
+                // ✅ Create notification for the enrolled student
+                try {
+                    $notificationModel = new NotificationModel();
+                    $studentNotificationId = $notificationModel->createNotification(
+                        (int)$studentId,
+                        "You have been successfully enrolled in '{$courseTitle}'!"
+                    );
+                    if ($studentNotificationId) {
+                        log_message('info', "✅ Student notification created successfully! Student ID: {$studentId}, Notification ID: {$studentNotificationId}");
+                    } else {
+                        log_message('warning', "❌ Student notification creation returned false for student ID: {$studentId}");
+                    }
+                } catch (\Exception $notifError) {
+                    log_message('error', '❌ Student notification creation failed for student ' . $studentId . ': ' . $notifError->getMessage());
+                    log_message('error', 'Notification error trace: ' . $notifError->getTraceAsString());
+                }
+                
+                // ✅ Create notification for the teacher who enrolled the student
+                try {
+                    $notificationModel = new NotificationModel();
+                    $teacherNotificationId = $notificationModel->createNotification(
+                        (int)$userId,
+                        "You have successfully enrolled '{$studentName}' in '{$courseTitle}'."
+                    );
+                    if ($teacherNotificationId) {
+                        log_message('info', "✅ Teacher notification created successfully! Teacher ID: {$userId}, Notification ID: {$teacherNotificationId}");
+                    } else {
+                        log_message('warning', "❌ Teacher notification creation returned false for teacher ID: {$userId}");
+                    }
+                } catch (\Exception $teacherNotifError) {
+                    log_message('warning', 'Teacher notification creation failed: ' . $teacherNotifError->getMessage());
+                }
 
                 return $this->response->setJSON([
                     'status' => 'success',
@@ -474,6 +704,13 @@ class Teacher extends BaseController
 
         // Handle assignment creation
         if ($this->request->getMethod() === 'POST' && $this->request->getPost('action') === 'create') {
+            // Get course info first
+            $course = $db->table('courses')
+                         ->where('id', $courseId)
+                         ->where('instructor_id', $userId)
+                         ->get()
+                         ->getRowArray();
+            
             $data = [
                 'course_id' => $courseId,
                 'grading_period_id' => $this->request->getPost('grading_period_id'),
@@ -485,6 +722,51 @@ class Teacher extends BaseController
             ];
 
             if ($assignmentModel->save($data)) {
+                // ✅ Create notifications for all enrolled students
+                try {
+                    $notificationModel = new NotificationModel();
+                    $enrollmentModel = new EnrollmentModel();
+                    $enrolledStudents = $enrollmentModel->getEnrollmentsByCourse($courseId);
+                    $courseTitle = $course['title'] ?? 'Course';
+                    $assignmentTitle = $data['title'];
+                    
+                    $notificationCount = 0;
+                    foreach ($enrolledStudents as $enrollment) {
+                        $studentId = isset($enrollment['user_id']) ? (int)$enrollment['user_id'] : null;
+                        if ($studentId) {
+                            $notificationId = $notificationModel->createNotification(
+                                $studentId,
+                                "New assignment '{$assignmentTitle}' has been posted for {$courseTitle}!"
+                            );
+                            if ($notificationId) {
+                                $notificationCount++;
+                            }
+                        }
+                    }
+                    log_message('info', "Created {$notificationCount} notifications for assignment '{$assignmentTitle}' in course {$courseId}");
+                } catch (\Exception $notifError) {
+                    log_message('warning', 'Notification creation failed: ' . $notifError->getMessage());
+                }
+                
+                // ✅ Create notification for the teacher who created the assignment
+                try {
+                    $teacherId = $userId;
+                    if ($teacherId) {
+                        $notificationModel = new NotificationModel();
+                        $teacherNotificationId = $notificationModel->createNotification(
+                            (int)$teacherId,
+                            "You have successfully created assignment '{$assignmentTitle}' for '{$courseTitle}'."
+                        );
+                        if ($teacherNotificationId) {
+                            log_message('info', "✅ Teacher notification created for assignment creation. Teacher ID: {$teacherId}, Notification ID: {$teacherNotificationId}");
+                        } else {
+                            log_message('warning', "❌ Teacher notification creation returned false for teacher ID: {$teacherId}");
+                        }
+                    }
+                } catch (\Exception $teacherNotifError) {
+                    log_message('warning', 'Teacher notification creation failed: ' . $teacherNotifError->getMessage());
+                }
+                
                 return redirect()->back()->with('success', 'Assignment created successfully!');
             } else {
                 return redirect()->back()->withInput()->with('errors', $assignmentModel->errors());
@@ -514,6 +796,62 @@ class Teacher extends BaseController
         ];
 
         return view('teacher/assignments', $data);
+    }
+
+    // ✅ Delete Assignment (Teacher)
+    public function deleteAssignment($assignmentId)
+    {
+        $session = session();
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'teacher') {
+            return redirect()->to('/teacher_dashboard')->with('error', 'Access Denied.');
+        }
+
+        $db = \Config\Database::connect();
+        $userId = $session->get('user_id');
+
+        $assignmentModel = new AssignmentModel();
+
+        // Get assignment
+        $assignment = $assignmentModel->find($assignmentId);
+        if (!$assignment) {
+            return redirect()->back()->with('error', 'Assignment not found.');
+        }
+
+        // Verify course ownership
+        $course = $db->table('courses')
+                     ->where('id', $assignment['course_id'])
+                     ->where('instructor_id', $userId)
+                     ->get()
+                     ->getRowArray();
+
+        if (!$course) {
+            return redirect()->back()->with('error', 'Access denied.');
+        }
+
+        // Get assignment info for notification
+        $assignmentTitle = $assignment['title'] ?? 'Assignment';
+        $courseTitle = $course['title'] ?? 'Course';
+
+        // Delete assignment
+        if ($assignmentModel->delete($assignmentId)) {
+            // ✅ Create notification for the teacher who deleted the assignment
+            try {
+                $notificationModel = new NotificationModel();
+                $teacherNotificationId = $notificationModel->createNotification(
+                    (int)$userId,
+                    "You have successfully deleted assignment '{$assignmentTitle}' from '{$courseTitle}'."
+                );
+                if ($teacherNotificationId) {
+                    log_message('info', "✅ Teacher notification created for assignment deletion. Teacher ID: {$userId}, Notification ID: {$teacherNotificationId}");
+                }
+            } catch (\Exception $teacherNotifError) {
+                log_message('warning', 'Teacher notification creation failed for assignment deletion: ' . $teacherNotifError->getMessage());
+            }
+
+            return redirect()->back()->with('success', 'Assignment deleted successfully!');
+        } else {
+            return redirect()->back()->with('error', 'Failed to delete assignment.');
+        }
     }
 
     // ✅ Grade Assignment (Teacher)
@@ -595,7 +933,26 @@ class Teacher extends BaseController
                 $savedCount++;
             }
 
+            // ✅ Create notification for the teacher who graded the assignment
             if ($savedCount > 0) {
+                try {
+                    $courseTitle = $course['title'] ?? 'Course';
+                    $assignmentTitle = $assignment['title'] ?? 'Assignment';
+                    $teacherId = $userId;
+                    if ($teacherId) {
+                        $notificationModel = new NotificationModel();
+                        $teacherNotificationId = $notificationModel->createNotification(
+                            (int)$teacherId,
+                            "You have successfully graded {$savedCount} student(s) for assignment '{$assignmentTitle}' in '{$courseTitle}'."
+                        );
+                        if ($teacherNotificationId) {
+                            log_message('info', "✅ Teacher notification created for assignment grading. Teacher ID: {$teacherId}, Notification ID: {$teacherNotificationId}");
+                        }
+                    }
+                } catch (\Exception $teacherNotifError) {
+                    log_message('warning', 'Teacher notification creation failed for assignment grading: ' . $teacherNotifError->getMessage());
+                }
+                
                 return redirect()->back()->with('success', "Successfully saved {$savedCount} grade(s)!");
             } else {
                 return redirect()->back()->with('error', 'No valid grades to save.');
@@ -731,5 +1088,75 @@ class Teacher extends BaseController
         ];
 
         return view('teacher/quizzes', $data);
+    }
+
+    // ✅ Student: View Assignments for a Course
+    public function studentAssignments($courseId)
+    {
+        $session = session();
+        if (!$session->get('logged_in')) {
+            return redirect()->to('/login')->with('error', 'Please login first.');
+        }
+
+        $userRole = strtolower($session->get('user_role'));
+        if ($userRole !== 'student') {
+            return redirect()->to('/dashboard')->with('error', 'Access denied.');
+        }
+
+        $userId = $session->get('user_id');
+        $db = \Config\Database::connect();
+        
+        // Verify student is enrolled in this course
+        $enrollment = $db->table('enrollments')
+            ->where('user_id', $userId)
+            ->where('course_id', $courseId)
+            ->get()
+            ->getRowArray();
+
+        if (!$enrollment) {
+            return redirect()->to('/dashboard')->with('error', 'You are not enrolled in this course.');
+        }
+
+        // Get course
+        $course = $db->table('courses')->where('id', $courseId)->get()->getRowArray();
+        if (!$course) {
+            return redirect()->back()->with('error', 'Course not found.');
+        }
+
+        // Get assignments for this course
+        $assignmentModel = new AssignmentModel();
+        $assignments = $assignmentModel->getAssignmentsByCourse($courseId);
+        
+        // Get grades for each assignment
+        $gradeModel = new GradeModel();
+        $enrollmentModel = new EnrollmentModel();
+        $enrollmentRecord = $enrollmentModel->where('user_id', $userId)
+                                            ->where('course_id', $courseId)
+                                            ->first();
+        
+        foreach ($assignments as &$assignment) {
+            if ($enrollmentRecord) {
+                $grade = $gradeModel->getGradeByAssignment($enrollmentRecord['id'], $assignment['id']);
+                $assignment['grade'] = $grade;
+                $assignment['score'] = $grade ? $grade['score'] : null;
+                $assignment['percentage'] = $grade ? $grade['percentage'] : null;
+                $assignment['remarks'] = $grade ? $grade['remarks'] : null;
+            } else {
+                $assignment['grade'] = null;
+                $assignment['score'] = null;
+                $assignment['percentage'] = null;
+                $assignment['remarks'] = null;
+            }
+        }
+
+        $data = [
+            'title' => 'Course Assignments',
+            'course' => $course,
+            'assignments' => $assignments,
+            'user_name' => $session->get('user_name'),
+            'user_role' => $userRole,
+        ];
+
+        return view('assignments/student_index', $data);
     }
 }

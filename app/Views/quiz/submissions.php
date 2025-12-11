@@ -76,14 +76,21 @@
                                         <?php endif; ?>
                                     </td>
                                     <td>
-                                        <button type="button" class="btn btn-sm btn-primary grade-submission-btn" 
-                                                data-submission-id="<?= $submission['id'] ?>"
-                                                data-current-score="<?= esc($submission['score'] ?? '') ?>"
-                                                data-max-score="<?= esc($quiz['max_score'] ?? 100) ?>"
-                                                data-answer="<?= esc($submission['answer'] ?? '') ?>"
-                                                data-student-name="<?= esc($submission['user_name'] ?? '') ?>">
-                                            <?= isset($submission['score']) && $submission['score'] !== null ? 'Update Grade' : 'Grade' ?>
-                                        </button>
+                                        <div class="btn-group" role="group">
+                                            <button type="button" class="btn btn-sm btn-primary grade-submission-btn" 
+                                                    data-submission-id="<?= $submission['id'] ?>"
+                                                    data-current-score="<?= esc($submission['score'] ?? '') ?>"
+                                                    data-max-score="<?= esc($quiz['max_score'] ?? 100) ?>"
+                                                    data-answer="<?= esc($submission['answer'] ?? '') ?>"
+                                                    data-student-name="<?= esc($submission['user_name'] ?? '') ?>">
+                                                <?= isset($submission['score']) && $submission['score'] !== null ? 'Update Grade' : 'Grade' ?>
+                                            </button>
+                                            <a href="<?= site_url('quiz/submission/delete/' . $submission['id']) ?>" 
+                                               class="btn btn-sm btn-danger"
+                                               onclick="return confirm('Are you sure you want to delete this submission? This action cannot be undone.')">
+                                                Delete
+                                            </a>
+                                        </div>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>

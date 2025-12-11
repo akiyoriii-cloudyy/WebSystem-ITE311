@@ -10,18 +10,26 @@ $(document).ready(function() {
     
     // Function to fetch notifications from server
     function fetchNotifications() {
+        console.log('Fetching notifications...');
         $.ajax({
             url: '<?= base_url('notifications') ?>',
             type: 'GET',
             dataType: 'json',
             success: function(response) {
+                console.log('Notification fetch response:', response);
                 if (response.status === 'success') {
+                    console.log('Unread count:', response.unread_count);
+                    console.log('Notifications:', response.notifications);
                     updateNotificationUI(response.unread_count, response.notifications);
+                } else {
+                    console.error('Notification fetch failed:', response.message);
                 }
             },
             error: function(xhr, status, error) {
                 console.error('Error fetching notifications:', error);
+                console.error('Status:', status);
                 console.error('XHR Response:', xhr.responseText);
+                console.error('XHR Status:', xhr.status);
             }
         });
     }

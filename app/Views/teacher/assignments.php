@@ -97,6 +97,11 @@
                                         <td><?= $assignment['due_date'] ? date('M d, Y H:i', strtotime($assignment['due_date'])) : 'N/A' ?></td>
                                         <td>
                                             <a href="<?= site_url('teacher/assignments/' . $assignment['id'] . '/grade') ?>" class="btn btn-sm btn-success">Grade</a>
+                                            <a href="<?= site_url('teacher/assignments/' . $assignment['id'] . '/delete') ?>" 
+                                               class="btn btn-sm btn-danger"
+                                               onclick="return confirm('Are you sure you want to delete this assignment? This action cannot be undone.')">
+                                                Delete
+                                            </a>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>

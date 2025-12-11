@@ -7,6 +7,7 @@ use App\Models\SemesterModel;
 use App\Models\TermModel;
 use App\Models\DepartmentModel;
 use App\Models\ProgramModel;
+use App\Models\NotificationModel;
 
 class AcademicManagement extends BaseController
 {
@@ -34,6 +35,19 @@ class AcademicManagement extends BaseController
                 ];
 
                 if ($acadYearModel->save($data)) {
+                    // ✅ Create notification for admin
+                    try {
+                        $notificationModel = new NotificationModel();
+                        $adminId = $session->get('user_id');
+                        $acadYear = $data['acad_year'] ?? 'Academic Year';
+                        $notificationModel->createNotification(
+                            (int)$adminId,
+                            "You have successfully created Academic Year '{$acadYear}'."
+                        );
+                    } catch (\Exception $notifError) {
+                        log_message('warning', 'Notification creation failed for academic year: ' . $notifError->getMessage());
+                    }
+                    
                     return redirect()->back()->with('success', 'Academic Year created successfully!');
                 } else {
                     return redirect()->back()->withInput()->with('errors', $acadYearModel->errors());
@@ -95,6 +109,19 @@ class AcademicManagement extends BaseController
                 ];
 
                 if ($semesterModel->save($data)) {
+                    // ✅ Create notification for admin
+                    try {
+                        $notificationModel = new NotificationModel();
+                        $adminId = $session->get('user_id');
+                        $semester = $data['semester'] ?? 'Semester';
+                        $notificationModel->createNotification(
+                            (int)$adminId,
+                            "You have successfully created Semester '{$semester}'."
+                        );
+                    } catch (\Exception $notifError) {
+                        log_message('warning', 'Notification creation failed for semester: ' . $notifError->getMessage());
+                    }
+                    
                     return redirect()->back()->with('success', 'Semester created successfully!');
                 } else {
                     return redirect()->back()->withInput()->with('errors', $semesterModel->errors());
@@ -163,6 +190,19 @@ class AcademicManagement extends BaseController
                 ];
 
                 if ($termModel->save($data)) {
+                    // ✅ Create notification for admin
+                    try {
+                        $notificationModel = new NotificationModel();
+                        $adminId = $session->get('user_id');
+                        $term = $data['term'] ?? 'Term';
+                        $notificationModel->createNotification(
+                            (int)$adminId,
+                            "You have successfully created Term '{$term}'."
+                        );
+                    } catch (\Exception $notifError) {
+                        log_message('warning', 'Notification creation failed for term: ' . $notifError->getMessage());
+                    }
+                    
                     return redirect()->back()->with('success', 'Term created successfully!');
                 } else {
                     return redirect()->back()->withInput()->with('errors', $termModel->errors());
@@ -232,6 +272,19 @@ class AcademicManagement extends BaseController
                 ];
 
                 if ($departmentModel->save($data)) {
+                    // ✅ Create notification for admin
+                    try {
+                        $notificationModel = new NotificationModel();
+                        $adminId = $session->get('user_id');
+                        $deptName = $data['department_name'] ?? 'Department';
+                        $notificationModel->createNotification(
+                            (int)$adminId,
+                            "You have successfully created Department '{$deptName}'."
+                        );
+                    } catch (\Exception $notifError) {
+                        log_message('warning', 'Notification creation failed for department: ' . $notifError->getMessage());
+                    }
+                    
                     return redirect()->back()->with('success', 'Department created successfully!');
                 } else {
                     return redirect()->back()->withInput()->with('errors', $departmentModel->errors());
@@ -292,6 +345,19 @@ class AcademicManagement extends BaseController
                 ];
 
                 if ($programModel->save($data)) {
+                    // ✅ Create notification for admin
+                    try {
+                        $notificationModel = new NotificationModel();
+                        $adminId = $session->get('user_id');
+                        $programName = $data['program_name'] ?? 'Program';
+                        $notificationModel->createNotification(
+                            (int)$adminId,
+                            "You have successfully created Program '{$programName}'."
+                        );
+                    } catch (\Exception $notifError) {
+                        log_message('warning', 'Notification creation failed for program: ' . $notifError->getMessage());
+                    }
+                    
                     return redirect()->back()->with('success', 'Program created successfully!');
                 } else {
                     return redirect()->back()->withInput()->with('errors', $programModel->errors());

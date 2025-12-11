@@ -242,6 +242,15 @@ class Course extends BaseController
             ])->setStatusCode(401);
         }
 
+        // ✅ Prevent students from self-enrolling - only teachers and admins can enroll students
+        $userRole = strtolower(session()->get('user_role') ?? '');
+        if ($userRole === 'student') {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Students cannot self-enroll. Please contact your teacher or admin to be enrolled in courses.'
+            ])->setStatusCode(403);
+        }
+
         $user_id = session()->get('user_id');
         $course_id = $this->request->getPost('course_id') ?? $this->request->getJSON(true)['course_id'] ?? null;
 
@@ -266,6 +275,74 @@ class Course extends BaseController
                 'status' => 'error',
                 'message' => 'You are already enrolled in this course.'
             ])->setStatusCode(400);
+        }
+
+        // ✅ Validate department/program match for students
+        $userModel = new UserModel();
+        $user = $userModel->find($user_id);
+        $db = \Config\Database::connect();
+        $course = $db->table('courses')->where('id', $course_id)->get()->getRowArray();
+        
+        if (!$user) {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'User not found'
+            ])->setStatusCode(400);
+        }
+        
+        if (!$course) {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Course not found'
+            ])->setStatusCode(400);
+        }
+        
+        if (strtolower($user['role']) === 'student') {
+            $userDeptId = $user['department_id'] ?? null;
+            $userProgId = $user['program_id'] ?? null;
+            $courseDeptId = $course['department_id'] ?? null;
+            $courseProgId = $course['program_id'] ?? null;
+            
+            // If course has department/program specified, student must match
+            if ($courseDeptId || $courseProgId) {
+                $errors = [];
+                
+                // Check department match
+                if ($courseDeptId && $userDeptId != $courseDeptId) {
+                    $deptModel = new \App\Models\DepartmentModel();
+                    $userDept = $deptModel->find($userDeptId);
+                    $courseDept = $deptModel->find($courseDeptId);
+                    $userDeptName = $userDept ? $userDept['department_name'] : 'Unknown';
+                    $courseDeptName = $courseDept ? $courseDept['department_name'] : 'Unknown';
+                    $errors[] = "You belong to '{$userDeptName}' but this course belongs to '{$courseDeptName}'.";
+                }
+                
+                // Check program match (if both course and student have programs)
+                if ($courseProgId && $userProgId && $userProgId != $courseProgId) {
+                    $progModel = new \App\Models\ProgramModel();
+                    $userProg = $progModel->find($userProgId);
+                    $courseProg = $progModel->find($courseProgId);
+                    $userProgName = $userProg ? $userProg['program_name'] : 'Unknown';
+                    $courseProgName = $courseProg ? $courseProg['program_name'] : 'Unknown';
+                    $errors[] = "You are in '{$userProgName}' program but this course is for '{$courseProgName}' program.";
+                }
+                
+                // If student doesn't have department/program set, but course requires it
+                if ($courseDeptId && !$userDeptId) {
+                    $errors[] = "You must have a department assigned. Please contact admin to update your department.";
+                }
+                
+                if ($courseProgId && !$userProgId) {
+                    $errors[] = "You must have a program assigned. Please contact admin to update your program.";
+                }
+                
+                if (!empty($errors)) {
+                    return $this->response->setJSON([
+                        'status' => 'error',
+                        'message' => 'Enrollment failed: ' . implode(' ', $errors)
+                    ])->setStatusCode(400);
+                }
+            }
         }
 
         // ✅ Insert enrollment with all required fields

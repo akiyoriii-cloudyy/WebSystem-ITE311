@@ -6,6 +6,7 @@ use App\Models\UserModel;
 use App\Models\AnnouncementModel;
 use App\Models\EnrollmentModel;
 use App\Models\CourseScheduleModel;
+use App\Models\NotificationModel;
 
 class Admin extends BaseController
 {
@@ -37,7 +38,7 @@ class Admin extends BaseController
         $db = \Config\Database::connect();
         try {
             $result = $db->table('users')
-                        ->select('id, name, email, role, status, created_at')
+                        ->select('id, name, email, role, status, department_id, program_id, student_id, created_at')
                         ->orderBy('status', 'ASC')
                         ->orderBy('created_at', 'DESC')
                         ->get();
@@ -53,9 +54,24 @@ class Admin extends BaseController
             log_message('error', 'Failed to fetch users: ' . $e->getMessage());
         }
 
+        // Fetch departments and programs for student assignment
+        $departments = [];
+        $programs = [];
+        try {
+            $deptModel = new \App\Models\DepartmentModel();
+            $departments = $deptModel->getActiveDepartments();
+            
+            $progModel = new \App\Models\ProgramModel();
+            $programs = $progModel->getActivePrograms();
+        } catch (\Exception $e) {
+            log_message('error', 'Failed to fetch departments/programs: ' . $e->getMessage());
+        }
+
         $data = [
             'title'     => 'Manage Users',
             'users'     => $users,
+            'departments' => $departments,
+            'programs'   => $programs,
             'user_name' => $session->get('user_name'),
             'user_role' => $session->get('user_role')
         ];
@@ -446,6 +462,21 @@ class Admin extends BaseController
             if ($courseId) {
                 log_message('info', "Course created successfully. ID: {$courseId}, Title: {$title}");
                 
+                // ✅ Create notification for admin (course creator)
+                try {
+                    $session = session();
+                    $adminId = $session->get('user_id');
+                    if ($adminId) {
+                        $notificationModel = new NotificationModel();
+                        $notificationModel->createNotification(
+                            $adminId,
+                            "Course '{$title}' has been created successfully!"
+                        );
+                    }
+                } catch (\Exception $notifError) {
+                    log_message('warning', 'Notification creation failed: ' . $notifError->getMessage());
+                }
+                
                 return $this->response->setJSON([
                     'status' => 'success',
                     'message' => 'Course created successfully!',
@@ -464,6 +495,374 @@ class Admin extends BaseController
             return $this->response->setJSON([
                 'status' => 'error',
                 'message' => 'Failed to create course: ' . $e->getMessage()
+            ])->setStatusCode(500);
+        }
+    }
+
+    // ✅ Get Course Data (for editing)
+    public function getCourse($courseId)
+    {
+        $session = session();
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'admin') {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Access Denied.'
+            ])->setStatusCode(403);
+        }
+
+        $db = \Config\Database::connect();
+        $course = $db->table('courses')->where('id', (int)$courseId)->get()->getRowArray();
+
+        if (!$course) {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Course not found.'
+            ])->setStatusCode(404);
+        }
+
+        // Also fetch dropdown options for the edit form
+        $teachers = [];
+        $acadYears = [];
+        $semesters = [];
+        $terms = [];
+        $departments = [];
+        $programs = [];
+
+        try {
+            // Get teachers
+            $result = $db->table('users')
+                ->whereIn('role', ['teacher', 'Teacher'])
+                ->orderBy('name', 'ASC')
+                ->get();
+            if ($result !== false && is_object($result)) {
+                $teachers = $result->getResultArray();
+            }
+        } catch (\Exception $e) {
+            log_message('error', 'Failed to fetch teachers: ' . $e->getMessage());
+        }
+
+        try {
+            // Get academic years
+            if ($db->query("SHOW TABLES LIKE 'acad_years'")->getNumRows() > 0) {
+                $result = $db->table('acad_years')->orderBy('acad_year', 'DESC')->get();
+                if ($result !== false && is_object($result)) {
+                    $acadYears = $result->getResultArray();
+                }
+            }
+        } catch (\Exception $e) {
+            log_message('error', 'Failed to fetch academic years: ' . $e->getMessage());
+        }
+
+        try {
+            // Get semesters
+            if ($db->query("SHOW TABLES LIKE 'semesters'")->getNumRows() > 0) {
+                $result = $db->table('semesters')
+                    ->select('semesters.*, acad_years.acad_year')
+                    ->join('acad_years', 'acad_years.id = semesters.acad_year_id', 'left')
+                    ->orderBy('semesters.start_date', 'DESC')
+                    ->get();
+                if ($result !== false && is_object($result)) {
+                    $semesters = $result->getResultArray();
+                }
+            }
+        } catch (\Exception $e) {
+            log_message('error', 'Failed to fetch semesters: ' . $e->getMessage());
+        }
+
+        try {
+            // Get terms
+            if ($db->query("SHOW TABLES LIKE 'terms'")->getNumRows() > 0) {
+                $result = $db->table('terms')
+                    ->select('terms.*, semesters.semester')
+                    ->join('semesters', 'terms.semester_id = semesters.id', 'left')
+                    ->orderBy('terms.start_date', 'DESC')
+                    ->get();
+                if ($result !== false && is_object($result)) {
+                    $terms = $result->getResultArray();
+                }
+            }
+        } catch (\Exception $e) {
+            log_message('error', 'Failed to fetch terms: ' . $e->getMessage());
+        }
+
+        try {
+            // Get departments
+            if ($db->query("SHOW TABLES LIKE 'departments'")->getNumRows() > 0) {
+                $result = $db->table('departments')
+                    ->where('is_active', 1)
+                    ->orderBy('department_name', 'ASC')
+                    ->get();
+                if ($result !== false && is_object($result)) {
+                    $departments = $result->getResultArray();
+                }
+            }
+        } catch (\Exception $e) {
+            log_message('error', 'Failed to fetch departments: ' . $e->getMessage());
+        }
+
+        try {
+            // Get programs
+            if ($db->query("SHOW TABLES LIKE 'programs'")->getNumRows() > 0) {
+                $result = $db->table('programs')
+                    ->select('programs.*, departments.department_name, departments.department_code')
+                    ->join('departments', 'departments.id = programs.department_id', 'left')
+                    ->where('programs.is_active', 1)
+                    ->orderBy('departments.department_name', 'ASC')
+                    ->orderBy('programs.program_name', 'ASC')
+                    ->get();
+                if ($result !== false && is_object($result)) {
+                    $programs = $result->getResultArray();
+                }
+            }
+        } catch (\Exception $e) {
+            log_message('error', 'Failed to fetch programs: ' . $e->getMessage());
+        }
+
+        return $this->response->setJSON([
+            'status' => 'success',
+            'course' => $course,
+            'dropdowns' => [
+                'teachers' => $teachers,
+                'acadYears' => $acadYears,
+                'semesters' => $semesters,
+                'terms' => $terms,
+                'departments' => $departments,
+                'programs' => $programs
+            ]
+        ]);
+    }
+
+    // ✅ Update Course
+    public function updateCourse($courseId)
+    {
+        $session = session();
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'admin') {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Access Denied.'
+            ])->setStatusCode(403);
+        }
+
+        $this->response->setContentType('application/json');
+        $db = \Config\Database::connect();
+
+        // Check if course exists
+        $course = $db->table('courses')->where('id', (int)$courseId)->get()->getRowArray();
+        if (!$course) {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Course not found.'
+            ])->setStatusCode(404);
+        }
+
+        // Get form data
+        $title = $this->request->getPost('title');
+        $description = $this->request->getPost('description');
+        $course_number = $this->request->getPost('course_number');
+        $instructor_id = $this->request->getPost('instructor_id');
+        $acad_year_id = $this->request->getPost('acad_year_id') ?: null;
+        $semester_id = $this->request->getPost('semester_id') ?: null;
+        $term_id = $this->request->getPost('term_id') ?: null;
+        $units = $this->request->getPost('units') ?: null;
+        $department_id = $this->request->getPost('department_id') ?: null;
+        $program_id = $this->request->getPost('program_id') ?: null;
+
+        // Validation
+        if (empty($title)) {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Course title is required.'
+            ])->setStatusCode(400);
+        }
+
+        // Validate instructor if provided
+        if (!empty($instructor_id)) {
+            $instructor = $db->table('users')
+                ->where('id', $instructor_id)
+                ->whereIn('role', ['teacher', 'Teacher'])
+                ->get()
+                ->getRowArray();
+            
+            if (!$instructor) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Invalid instructor selected.'
+                ])->setStatusCode(400);
+            }
+        }
+
+        // Validate academic structure if provided
+        if (!empty($acad_year_id)) {
+            if ($db->query("SHOW TABLES LIKE 'acad_years'")->getNumRows() > 0) {
+                $acadYear = $db->table('acad_years')->where('id', $acad_year_id)->get()->getRowArray();
+                if (!$acadYear) {
+                    return $this->response->setJSON([
+                        'status' => 'error',
+                        'message' => 'Invalid academic year selected.'
+                    ])->setStatusCode(400);
+                }
+            }
+        }
+
+        if (!empty($semester_id)) {
+            if ($db->query("SHOW TABLES LIKE 'semesters'")->getNumRows() > 0) {
+                $result = $db->table('semesters')->where('id', $semester_id)->get();
+                if ($result !== false && is_object($result)) {
+                    $semester = $result->getRowArray();
+                    if (!$semester) {
+                        return $this->response->setJSON([
+                            'status' => 'error',
+                            'message' => 'Invalid semester selected.'
+                        ])->setStatusCode(400);
+                    }
+                } else {
+                    return $this->response->setJSON([
+                        'status' => 'error',
+                        'message' => 'Invalid semester selected.'
+                    ])->setStatusCode(400);
+                }
+            }
+        }
+
+        if (!empty($term_id)) {
+            if ($db->query("SHOW TABLES LIKE 'terms'")->getNumRows() > 0) {
+                $result = $db->table('terms')->where('id', $term_id)->get();
+                if ($result !== false && is_object($result)) {
+                    $term = $result->getRowArray();
+                    if (!$term) {
+                        return $this->response->setJSON([
+                            'status' => 'error',
+                            'message' => 'Invalid term selected.'
+                        ])->setStatusCode(400);
+                    }
+                    // Validate that term belongs to selected semester if both are provided
+                    if (!empty($semester_id) && !empty($term['semester_id']) && (int)$term['semester_id'] !== (int)$semester_id) {
+                        return $this->response->setJSON([
+                            'status' => 'error',
+                            'message' => 'Selected term does not belong to the selected semester.'
+                        ])->setStatusCode(400);
+                    }
+                } else {
+                    return $this->response->setJSON([
+                        'status' => 'error',
+                        'message' => 'Invalid term selected.'
+                    ])->setStatusCode(400);
+                }
+            }
+        }
+
+        // Validate units if provided
+        if (!empty($units)) {
+            $units = (int)$units;
+            if ($units < 0 || $units > 10) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Units must be between 0 and 10.'
+                ])->setStatusCode(400);
+            }
+        }
+
+        // Validate department if provided
+        if (!empty($department_id)) {
+            if ($db->query("SHOW TABLES LIKE 'departments'")->getNumRows() > 0) {
+                $result = $db->table('departments')->where('id', $department_id)->get();
+                if ($result !== false && is_object($result)) {
+                    $department = $result->getRowArray();
+                    if (!$department) {
+                        return $this->response->setJSON([
+                            'status' => 'error',
+                            'message' => 'Invalid department selected.'
+                        ])->setStatusCode(400);
+                    }
+                } else {
+                    return $this->response->setJSON([
+                        'status' => 'error',
+                        'message' => 'Invalid department selected.'
+                    ])->setStatusCode(400);
+                }
+            }
+        }
+
+        // Validate program if provided
+        if (!empty($program_id)) {
+            if ($db->query("SHOW TABLES LIKE 'programs'")->getNumRows() > 0) {
+                $result = $db->table('programs')->where('id', $program_id)->get();
+                if ($result !== false && is_object($result)) {
+                    $program = $result->getRowArray();
+                    if (!$program) {
+                        return $this->response->setJSON([
+                            'status' => 'error',
+                            'message' => 'Invalid program selected.'
+                        ])->setStatusCode(400);
+                    }
+                    // Validate that program belongs to selected department if both are provided
+                    if (!empty($department_id) && !empty($program['department_id']) && (int)$program['department_id'] !== (int)$department_id) {
+                        return $this->response->setJSON([
+                            'status' => 'error',
+                            'message' => 'Selected program does not belong to the selected department.'
+                        ])->setStatusCode(400);
+                    }
+                } else {
+                    return $this->response->setJSON([
+                        'status' => 'error',
+                        'message' => 'Invalid program selected.'
+                    ])->setStatusCode(400);
+                }
+            }
+        }
+
+        // Prepare update data
+        $updateData = [
+            'title' => $title,
+            'description' => $description ?: null,
+            'course_number' => $course_number ?: null,
+            'instructor_id' => !empty($instructor_id) ? (int)$instructor_id : null,
+            'acad_year_id' => !empty($acad_year_id) ? (int)$acad_year_id : null,
+            'semester_id' => !empty($semester_id) ? (int)$semester_id : null,
+            'term_id' => !empty($term_id) ? (int)$term_id : null,
+            'units' => !empty($units) ? (int)$units : null,
+            'department_id' => !empty($department_id) ? (int)$department_id : null,
+            'program_id' => !empty($program_id) ? (int)$program_id : null,
+            'updated_at' => date('Y-m-d H:i:s')
+        ];
+
+        try {
+            $result = $db->table('courses')->where('id', (int)$courseId)->update($updateData);
+            
+            if ($result) {
+                log_message('info', "Course updated successfully. ID: {$courseId}, Title: {$title}");
+                
+                // ✅ Create notification for admin
+                try {
+                    $adminId = $session->get('user_id');
+                    if ($adminId) {
+                        $notificationModel = new NotificationModel();
+                        $notificationModel->createNotification(
+                            (int)$adminId,
+                            "You have successfully updated course '{$title}'."
+                        );
+                    }
+                } catch (\Exception $notifError) {
+                    log_message('warning', 'Notification creation failed: ' . $notifError->getMessage());
+                }
+                
+                return $this->response->setJSON([
+                    'status' => 'success',
+                    'message' => 'Course updated successfully!',
+                    'csrf_token' => csrf_token(),
+                    'csrf_hash' => csrf_hash()
+                ]);
+            } else {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Failed to update course. Please try again.'
+                ])->setStatusCode(500);
+            }
+        } catch (\Exception $e) {
+            log_message('error', 'Course update failed: ' . $e->getMessage());
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Failed to update course: ' . $e->getMessage()
             ])->setStatusCode(500);
         }
     }
@@ -786,6 +1185,9 @@ class Admin extends BaseController
         // Get form data
         $name = $this->request->getPost('name');
         $email = $this->request->getPost('email');
+        $department_id = $this->request->getPost('department_id') ?: null;
+        $program_id = $this->request->getPost('program_id') ?: null;
+        $student_id = $this->request->getPost('student_id') ?: null;
         // Role changes are not allowed via Edit modal
 
         // Sanitize name - only trim whitespace
@@ -895,10 +1297,37 @@ class Admin extends BaseController
 
         // Role changes are not processed via this endpoint
 
+        // ✅ Validate department/program for students
+        if (strtolower($user['role']) === 'student') {
+            if ($program_id && $department_id) {
+                // Verify program belongs to department
+                $progModel = new \App\Models\ProgramModel();
+                $program = $progModel->find($program_id);
+                if (!$program || $program['department_id'] != $department_id) {
+                    $errorMessage = 'Selected program does not belong to the selected department.';
+                    if ($this->request->isAJAX() || $this->request->hasHeader('X-Requested-With')) {
+                        return $this->response->setJSON([
+                            'status' => 'error',
+                            'message' => $errorMessage
+                        ])->setStatusCode(400);
+                    }
+                    return redirect()->to('/admin/users')->with('error', $errorMessage);
+                }
+            }
+        } else {
+            // Clear department/program for non-students
+            $department_id = null;
+            $program_id = null;
+            $student_id = null;
+        }
+
         // Update user
         $updateData = [
             'name' => $name,
-            'email' => $email
+            'email' => $email,
+            'department_id' => $department_id ? (int)$department_id : null,
+            'program_id' => $program_id ? (int)$program_id : null,
+            'student_id' => $student_id ?: null
         ];
 
         // Do not update role here
@@ -1001,8 +1430,23 @@ class Admin extends BaseController
             return redirect()->to('/admin_dashboard')->with('error', 'Access Denied.');
         }
 
+        // Fetch departments and programs for student assignment
+        $departments = [];
+        $programs = [];
+        try {
+            $deptModel = new \App\Models\DepartmentModel();
+            $departments = $deptModel->getActiveDepartments();
+            
+            $progModel = new \App\Models\ProgramModel();
+            $programs = $progModel->getActivePrograms();
+        } catch (\Exception $e) {
+            log_message('error', 'Failed to fetch departments/programs: ' . $e->getMessage());
+        }
+
         $data = [
             'title'     => 'User Management',
+            'departments' => $departments,
+            'programs'   => $programs,
             'user_name' => $session->get('user_name'),
             'user_role' => $session->get('user_role')
         ];
@@ -1050,6 +1494,9 @@ class Admin extends BaseController
             $password = $this->request->getPost('password');
             $role = $this->request->getPost('role');
             $status = $this->request->getPost('status') ?? 'active';
+            $department_id = $this->request->getPost('department_id') ?: null;
+            $program_id = $this->request->getPost('program_id') ?: null;
+            $student_id = $this->request->getPost('student_id') ?: null;
 
             // Validation
             if (empty($name) || empty($email) || empty($password) || empty($role)) {
@@ -1131,6 +1578,26 @@ class Admin extends BaseController
                 ]);
             }
 
+            // ✅ Validate department/program for students
+            if (strtolower($role) === 'student') {
+                if ($program_id && $department_id) {
+                    // Verify program belongs to department
+                    $progModel = new \App\Models\ProgramModel();
+                    $program = $progModel->find($program_id);
+                    if (!$program || $program['department_id'] != $department_id) {
+                        return $this->response->setJSON([
+                            'status' => 'error',
+                            'message' => 'Selected program does not belong to the selected department.'
+                        ]);
+                    }
+                }
+            } else {
+                // Clear department/program for non-students
+                $department_id = null;
+                $program_id = null;
+                $student_id = null;
+            }
+
             // Create user
             try {
                 // Don't hash password here - UserModel::createAccount() will hash it
@@ -1139,12 +1606,26 @@ class Admin extends BaseController
                     'email' => $email,
                     'password' => $password, // Plain password - will be hashed in UserModel
                     'role' => strtolower($role),
-                    'status' => $status
+                    'status' => $status,
+                    'department_id' => $department_id ? (int)$department_id : null,
+                    'program_id' => $program_id ? (int)$program_id : null,
+                    'student_id' => $student_id ?: null
                 ];
 
                 $userId = $userModel->createAccount($userData);
 
                 if ($userId) {
+                    // ✅ Create notification for the newly created user
+                    try {
+                        $notificationModel = new NotificationModel();
+                        $notificationModel->createNotification(
+                            $userId,
+                            "Welcome! Your account has been created. You can now log in to the system."
+                        );
+                    } catch (\Exception $notifError) {
+                        log_message('warning', 'Notification creation failed: ' . $notifError->getMessage());
+                    }
+                    
                     return $this->response->setJSON([
                         'status' => 'success',
                         'message' => 'User created successfully!',
@@ -1423,11 +1904,85 @@ class Admin extends BaseController
                 ]);
             }
 
+            // Get user and course info for validation
+            $userModel = new UserModel();
+            $user = $userModel->find($userId);
+            $db = \Config\Database::connect();
+            $course = $db->table('courses')->where('id', $courseId)->get()->getRowArray();
+            
+            if (!$user) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'User not found'
+                ]);
+            }
+            
+            if (!$course) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Course not found'
+                ]);
+            }
+
+            // ✅ Validate department/program match for students
+            if (strtolower($user['role']) === 'student') {
+                $userDeptId = $user['department_id'] ?? null;
+                $userProgId = $user['program_id'] ?? null;
+                $courseDeptId = $course['department_id'] ?? null;
+                $courseProgId = $course['program_id'] ?? null;
+                
+                // If course has department/program specified, student must match
+                if ($courseDeptId || $courseProgId) {
+                    $errors = [];
+                    
+                    // Check department match
+                    if ($courseDeptId && $userDeptId != $courseDeptId) {
+                        $deptModel = new \App\Models\DepartmentModel();
+                        $userDept = $deptModel->find($userDeptId);
+                        $courseDept = $deptModel->find($courseDeptId);
+                        $userDeptName = $userDept ? $userDept['department_name'] : 'Unknown';
+                        $courseDeptName = $courseDept ? $courseDept['department_name'] : 'Unknown';
+                        $errors[] = "Student belongs to '{$userDeptName}' but course belongs to '{$courseDeptName}'.";
+                    }
+                    
+                    // Check program match (if both course and student have programs)
+                    if ($courseProgId && $userProgId && $userProgId != $courseProgId) {
+                        $progModel = new \App\Models\ProgramModel();
+                        $userProg = $progModel->find($userProgId);
+                        $courseProg = $progModel->find($courseProgId);
+                        $userProgName = $userProg ? $userProg['program_name'] : 'Unknown';
+                        $courseProgName = $courseProg ? $courseProg['program_name'] : 'Unknown';
+                        $errors[] = "Student is in '{$userProgName}' program but course is for '{$courseProgName}' program.";
+                    }
+                    
+                    // If student doesn't have department/program set, but course requires it
+                    if ($courseDeptId && !$userDeptId) {
+                        $errors[] = "Student must have a department assigned. Please update student's department first.";
+                    }
+                    
+                    if ($courseProgId && !$userProgId) {
+                        $errors[] = "Student must have a program assigned. Please update student's program first.";
+                    }
+                    
+                    if (!empty($errors)) {
+                        return $this->response->setJSON([
+                            'status' => 'error',
+                            'message' => 'Enrollment failed: ' . implode(' ', $errors)
+                        ]);
+                    }
+                }
+            }
+
             // Enroll user
             try {
+                $userId = (int)$userId;
+                $courseId = (int)$courseId;
+                
+                log_message('info', "Admin::enrollUser: Starting enrollment process for user_id: {$userId}, course_id: {$courseId}");
+                
                 $enrollmentData = [
-                    'user_id' => (int)$userId,
-                    'course_id' => (int)$courseId,
+                    'user_id' => $userId,
+                    'course_id' => $courseId,
                     'enrolled_at' => date('Y-m-d H:i:s'),
                     'enrollment_date' => date('Y-m-d H:i:s'),
                     'completion_status' => 'ENROLLED',
@@ -1448,17 +2003,59 @@ class Admin extends BaseController
                     log_message('error', 'Enrollment failed: ' . $errorMsg);
                     throw new \Exception($errorMsg);
                 }
+                
+                log_message('info', "Admin::enrollUser: Enrollment successful. Enrollment ID: {$enrollmentId}");
 
-                // Get user info for success message
-                $userModel = new UserModel();
-                $user = $userModel->find($userId);
+                // Get user info for success message (already fetched above)
                 $userName = $user ? $user['name'] : 'User';
                 $userRole = $user ? ucfirst($user['role']) : 'User';
                 
-                // Get course info
-                $db = \Config\Database::connect();
-                $course = $db->table('courses')->where('id', $courseId)->get()->getRowArray();
+                log_message('info', "Admin::enrollUser: Enrolled user info - Name: {$userName}, Role: {$userRole}, User ID: {$userId}");
+                
+                // Get course info (already fetched above)
                 $courseTitle = $course ? $course['title'] : 'Course';
+                
+                log_message('info', "Admin::enrollUser: Course info - Title: {$courseTitle}, Course ID: {$courseId}");
+
+                // ✅ Create notification for the enrolled user
+                log_message('info', "Admin::enrollUser: Attempting to create notification for user_id: {$userId}");
+                try {
+                    $notificationModel = new NotificationModel();
+                    $notificationMessage = "You have been successfully enrolled in {$courseTitle}!";
+                    log_message('info', "Admin::enrollUser: Notification message: {$notificationMessage}");
+                    
+                    $notificationId = $notificationModel->createNotification(
+                        $userId,
+                        $notificationMessage
+                    );
+                    
+                    if ($notificationId) {
+                        log_message('info', "Admin::enrollUser: ✅ Notification created successfully! User ID: {$userId}, Notification ID: {$notificationId}, Message: {$notificationMessage}");
+                    } else {
+                        log_message('error', "Admin::enrollUser: ❌ Notification creation returned FALSE for user_id: {$userId}");
+                    }
+                } catch (\Exception $notifError) {
+                    // Don't fail enrollment if notification fails
+                    log_message('error', 'Admin::enrollUser: ❌ Notification creation EXCEPTION for user ' . $userId . ': ' . $notifError->getMessage());
+                    log_message('error', 'Admin::enrollUser: Notification error trace: ' . $notifError->getTraceAsString());
+                }
+                
+                // ✅ Also notify the admin that they successfully enrolled a user
+                try {
+                    $adminId = $session->get('user_id');
+                    if ($adminId && $adminId != $userId) {
+                        $notificationModel = new NotificationModel();
+                        $adminNotificationId = $notificationModel->createNotification(
+                            (int)$adminId,
+                            "You have successfully enrolled {$userRole} '{$userName}' in '{$courseTitle}'."
+                        );
+                        if ($adminNotificationId) {
+                            log_message('info', "Admin::enrollUser: ✅ Admin notification created! Admin ID: {$adminId}, Notification ID: {$adminNotificationId}");
+                        }
+                    }
+                } catch (\Exception $adminNotifError) {
+                    log_message('warning', 'Admin::enrollUser: Admin notification creation failed: ' . $adminNotifError->getMessage());
+                }
 
                 return $this->response->setJSON([
                     'status' => 'success',
@@ -1530,6 +2127,39 @@ class Admin extends BaseController
                     $course = $db->table('courses')->where('id', $courseId)->get()->getRowArray();
                     $courseTitle = $course ? $course['title'] : 'Course';
                     
+                    // ✅ Create notification for the assigned teacher (even if already enrolled)
+                    try {
+                        $notificationModel = new NotificationModel();
+                        $notificationId = $notificationModel->createNotification(
+                            (int)$teacherId,
+                            "You have been assigned as instructor for '{$courseTitle}'!"
+                        );
+                        if ($notificationId) {
+                            log_message('info', "Notification created successfully for teacher {$teacherId}: Notification ID {$notificationId}");
+                        } else {
+                            log_message('warning', "Notification creation returned false for teacher {$teacherId}");
+                        }
+                    } catch (\Exception $notifError) {
+                        log_message('error', 'Notification creation failed for teacher ' . $teacherId . ': ' . $notifError->getMessage());
+                    }
+                    
+                    // ✅ Also notify the admin that they successfully assigned a teacher
+                    try {
+                        $adminId = $session->get('user_id');
+                        if ($adminId && $adminId != $teacherId) {
+                            $notificationModel = new NotificationModel();
+                            $adminNotificationId = $notificationModel->createNotification(
+                                (int)$adminId,
+                                "You have successfully assigned '{$teacherName}' as instructor for '{$courseTitle}'."
+                            );
+                            if ($adminNotificationId) {
+                                log_message('info', "Admin::assignTeacher: ✅ Admin notification created! Admin ID: {$adminId}, Notification ID: {$adminNotificationId}");
+                            }
+                        }
+                    } catch (\Exception $adminNotifError) {
+                        log_message('warning', 'Admin::assignTeacher: Admin notification creation failed: ' . $adminNotifError->getMessage());
+                    }
+                    
                     return $this->response->setJSON([
                         'status' => 'success',
                         'message' => "Teacher '{$teacherName}' is already enrolled and assigned to '{$courseTitle}'!",
@@ -1577,6 +2207,41 @@ class Admin extends BaseController
                 $teacherName = $teacher['name'];
                 $course = $db->table('courses')->where('id', $courseId)->get()->getRowArray();
                 $courseTitle = $course ? $course['title'] : 'Course';
+
+                // ✅ Create notification for the assigned teacher
+                try {
+                    $notificationModel = new NotificationModel();
+                    $notificationId = $notificationModel->createNotification(
+                        (int)$teacherId,
+                        "You have been assigned as instructor for '{$courseTitle}'!"
+                    );
+                    if ($notificationId) {
+                        log_message('info', "Notification created successfully for teacher {$teacherId}: Notification ID {$notificationId}");
+                    } else {
+                        log_message('warning', "Notification creation returned false for teacher {$teacherId}");
+                    }
+                } catch (\Exception $notifError) {
+                    // Don't fail assignment if notification fails
+                    log_message('error', 'Notification creation failed for teacher ' . $teacherId . ': ' . $notifError->getMessage());
+                    log_message('error', 'Notification error trace: ' . $notifError->getTraceAsString());
+                }
+                
+                // ✅ Also notify the admin that they successfully assigned a teacher
+                try {
+                    $adminId = $session->get('user_id');
+                    if ($adminId && $adminId != $teacherId) {
+                        $notificationModel = new NotificationModel();
+                        $adminNotificationId = $notificationModel->createNotification(
+                            (int)$adminId,
+                            "You have successfully assigned '{$teacherName}' as instructor for '{$courseTitle}'."
+                        );
+                        if ($adminNotificationId) {
+                            log_message('info', "Admin::assignTeacher: ✅ Admin notification created! Admin ID: {$adminId}, Notification ID: {$adminNotificationId}");
+                        }
+                    }
+                } catch (\Exception $adminNotifError) {
+                    log_message('warning', 'Admin::assignTeacher: Admin notification creation failed: ' . $adminNotifError->getMessage());
+                }
 
                 return $this->response->setJSON([
                     'status' => 'success',
@@ -1794,6 +2459,25 @@ class Admin extends BaseController
         ];
 
         if ($scheduleModel->insert($data)) {
+            // ✅ Create notification for admin
+            try {
+                $notificationModel = new NotificationModel();
+                $adminId = $session->get('user_id');
+                
+                // Get course title for notification
+                $db = \Config\Database::connect();
+                $course = $db->table('courses')->where('id', $data['course_id'])->get()->getRowArray();
+                $courseTitle = $course ? $course['title'] : 'Course';
+                $classType = ucfirst(str_replace('_', ' ', $data['class_type']));
+                
+                $notificationModel->createNotification(
+                    (int)$adminId,
+                    "You have successfully created a {$classType} schedule for '{$courseTitle}'."
+                );
+            } catch (\Exception $notifError) {
+                log_message('warning', 'Notification creation failed for schedule: ' . $notifError->getMessage());
+            }
+            
             return $this->response->setJSON([
                 'status' => 'success',
                 'message' => 'Schedule created successfully!',

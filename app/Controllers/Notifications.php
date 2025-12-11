@@ -25,6 +25,7 @@ class Notifications extends BaseController
 
         // Check if user is logged in
         if (!$session->get('logged_in')) {
+            log_message('warning', 'Notifications::get: User not authenticated');
             return $this->response->setJSON([
                 'status'  => 'error',
                 'message' => 'User not authenticated',
@@ -32,12 +33,24 @@ class Notifications extends BaseController
         }
 
         $userId = $session->get('user_id');
+        
+        if (empty($userId)) {
+            log_message('error', 'Notifications::get: user_id is empty in session');
+            return $this->response->setJSON([
+                'status'  => 'error',
+                'message' => 'User ID not found in session',
+            ])->setStatusCode(401);
+        }
+
+        log_message('debug', "Notifications::get: Fetching notifications for user_id: {$userId}");
 
         // Get unread count
         $unreadCount = $this->notificationModel->getUnreadCount($userId);
+        log_message('debug', "Notifications::get: Unread count for user_id {$userId}: {$unreadCount}");
 
         // Get latest notifications (limit 5)
         $notifications = $this->notificationModel->getNotificationsForUser($userId, 5);
+        log_message('debug', "Notifications::get: Found " . count($notifications) . " notifications for user_id {$userId}");
 
         return $this->response->setJSON([
             'status'         => 'success',

@@ -82,7 +82,7 @@ class EnrollmentModel extends Model
 
     public function getEnrollmentsByCourse($courseId)
     {
-        return $this->select('enrollments.*, users.name, users.email, users.student_id')
+        return $this->select('enrollments.id as enrollment_id, enrollments.*, users.id, users.name, users.email, users.student_id')
                     ->join('users', 'users.id = enrollments.user_id')
                     ->where('enrollments.course_id', $courseId)
                     ->findAll();

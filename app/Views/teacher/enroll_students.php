@@ -112,9 +112,11 @@
                                 </td>
                                 <td><?= esc($student['enrolled_at'] ?? $student['enrollment_date'] ?? 'N/A') ?></td>
                                 <td>
-                                    <a href="<?= site_url('teacher/courses/remove-student/' . $course['id'] . '/' . $student['id']) ?>" 
+                                    <a href="<?= site_url('teacher/courses/remove-student/' . $course['id'] . '/' . ($student['enrollment_id'] ?? $student['id']) . '?from=enroll') ?>" 
                                        class="btn btn-sm btn-danger" 
-                                       onclick="return confirm('Remove this student from the course?')">Remove</a>
+                                       onclick="return confirm('Are you sure you want to remove this student from the course?')">
+                                        <i class="bi bi-trash"></i> Remove
+                                    </a>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -145,8 +147,14 @@ $(document).ready(function() {
             dataType: 'json',
             success: function(response) {
                 if (response.status === 'success') {
+                    // Refresh notifications before reloading page
+                    if (typeof fetchNotifications === 'function') {
+                        fetchNotifications();
+                    }
                     alert(response.message);
-                    location.reload();
+                    setTimeout(function() {
+                        location.reload();
+                    }, 500);
                 } else {
                     alert('Error: ' + response.message);
                     submitBtn.prop('disabled', false).text(originalText);

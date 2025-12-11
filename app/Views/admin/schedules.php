@@ -81,9 +81,9 @@
                         <input type="text" class="form-control" id="room" name="room" placeholder="e.g., Room 101">
                     </div>
                 </div>
-                <div class="row">
+                <div class="row" id="meeting_link_row" style="display: none;">
                     <div class="col-md-12 mb-3">
-                        <label for="meeting_link" class="form-label">Meeting Link (for Online Classes)</label>
+                        <label for="meeting_link" class="form-label">Meeting Link (for Online Classes) <span class="text-danger">*</span></label>
                         <input type="url" class="form-control" id="meeting_link" name="meeting_link" placeholder="https://zoom.us/j/... or https://meet.google.com/...">
                         <small class="form-text text-muted">Required for online classes</small>
                     </div>
@@ -91,7 +91,7 @@
                 <button type="submit" class="btn btn-primary">
                     <i class="bi bi-plus-circle"></i> Create Schedule
                 </button>
-                <button type="reset" class="btn btn-secondary">Reset</button>
+                <button type="reset" class="btn btn-secondary" id="resetBtn">Reset</button>
             </form>
         </div>
     </div>
@@ -237,9 +237,10 @@
                         <label for="edit_room" class="form-label">Room/Location</label>
                         <input type="text" class="form-control" id="edit_room" name="room" placeholder="e.g., Room 101">
                     </div>
-                    <div class="mb-3">
-                        <label for="edit_meeting_link" class="form-label">Meeting Link (for Online Classes)</label>
+                    <div class="mb-3" id="edit_meeting_link_row" style="display: none;">
+                        <label for="edit_meeting_link" class="form-label">Meeting Link (for Online Classes) <span class="text-danger">*</span></label>
                         <input type="url" class="form-control" id="edit_meeting_link" name="meeting_link" placeholder="https://zoom.us/j/... or https://meet.google.com/...">
+                        <small class="form-text text-muted">Required for online classes</small>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -269,7 +270,13 @@ document.getElementById('createScheduleForm').addEventListener('submit', functio
     .then(data => {
         if (data.status === 'success') {
             alert(data.message);
-            location.reload();
+            // Refresh notifications before reloading page
+            if (typeof fetchNotifications === 'function') {
+                fetchNotifications();
+            }
+            setTimeout(() => {
+                location.reload();
+            }, 500);
         } else {
             alert('Error: ' + data.message);
         }
@@ -279,41 +286,6 @@ document.getElementById('createScheduleForm').addEventListener('submit', functio
         alert('An error occurred. Please try again.');
     });
 });
-
-// Edit Schedule
-function editSchedule(scheduleId) {
-    // Fetch schedule data
-    fetch('<?= site_url('admin/schedules') ?>?schedule_id=' + scheduleId, {
-        method: 'GET',
-        headers: {
-            'X-Requested-With': 'XMLHttpRequest',
-            'Accept': 'application/json'
-        }
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.status === 'success' && data.schedule) {
-            const s = data.schedule;
-            document.getElementById('edit_schedule_id').value = s.id;
-            document.getElementById('edit_course_id').value = s.course_id;
-            document.getElementById('edit_class_type').value = s.class_type;
-            document.getElementById('edit_day_of_week').value = s.day_of_week;
-            document.getElementById('edit_start_time').value = s.start_time;
-            document.getElementById('edit_end_time').value = s.end_time;
-            document.getElementById('edit_room').value = s.room || '';
-            document.getElementById('edit_meeting_link').value = s.meeting_link || '';
-            
-            const modal = new bootstrap.Modal(document.getElementById('editScheduleModal'));
-            modal.show();
-        } else {
-            alert('Failed to load schedule data: ' + (data.message || 'Unknown error'));
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        alert('Failed to load schedule data.');
-    });
-}
 
 // Update Schedule
 document.getElementById('editScheduleForm').addEventListener('submit', function(e) {
@@ -376,23 +348,77 @@ function deleteSchedule(scheduleId) {
     });
 }
 
-// Show/hide meeting link based on class type
+// Show/hide meeting link based on class type for CREATE form
 document.getElementById('class_type').addEventListener('change', function() {
-    const meetingLinkDiv = document.getElementById('meeting_link').closest('.row');
-    if (this.value === 'online') {
-        document.getElementById('meeting_link').setAttribute('required', 'required');
-    } else {
-        document.getElementById('meeting_link').removeAttribute('required');
-    }
+    toggleMeetingLinkField(this.value, 'meeting_link_row', 'meeting_link');
 });
 
-document.getElementById('edit_class_type').addEventListener('change', function() {
-    if (this.value === 'online') {
-        document.getElementById('edit_meeting_link').setAttribute('required', 'required');
-    } else {
-        document.getElementById('edit_meeting_link').removeAttribute('required');
-    }
+// Handle form reset
+document.getElementById('resetBtn').addEventListener('click', function() {
+    setTimeout(() => {
+        const meetingLinkRow = document.getElementById('meeting_link_row');
+        meetingLinkRow.style.display = 'none';
+        document.getElementById('meeting_link').removeAttribute('required');
+    }, 0);
 });
+
+// Function to toggle meeting link field visibility
+function toggleMeetingLinkField(classType, rowId, inputId) {
+    const meetingLinkRow = document.getElementById(rowId);
+    const meetingLinkInput = document.getElementById(inputId);
+    
+    if (classType === 'online') {
+        meetingLinkRow.style.display = 'block';
+        meetingLinkInput.setAttribute('required', 'required');
+    } else {
+        meetingLinkRow.style.display = 'none';
+        meetingLinkInput.removeAttribute('required');
+        meetingLinkInput.value = ''; // Clear the value when hidden
+    }
+}
+
+// Show/hide meeting link based on class type for EDIT form
+document.getElementById('edit_class_type').addEventListener('change', function() {
+    toggleMeetingLinkField(this.value, 'edit_meeting_link_row', 'edit_meeting_link');
+});
+
+// Handle initial state when editing a schedule
+function editSchedule(scheduleId) {
+    // Fetch schedule data
+    fetch('<?= site_url('admin/schedules') ?>?schedule_id=' + scheduleId, {
+        method: 'GET',
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'Accept': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success' && data.schedule) {
+            const s = data.schedule;
+            document.getElementById('edit_schedule_id').value = s.id;
+            document.getElementById('edit_course_id').value = s.course_id;
+            document.getElementById('edit_class_type').value = s.class_type;
+            document.getElementById('edit_day_of_week').value = s.day_of_week;
+            document.getElementById('edit_start_time').value = s.start_time;
+            document.getElementById('edit_end_time').value = s.end_time;
+            document.getElementById('edit_room').value = s.room || '';
+            document.getElementById('edit_meeting_link').value = s.meeting_link || '';
+            
+            // Show/hide meeting link based on class type
+            toggleMeetingLinkField(s.class_type, 'edit_meeting_link_row', 'edit_meeting_link');
+            
+            const modal = new bootstrap.Modal(document.getElementById('editScheduleModal'));
+            modal.show();
+        } else {
+            alert('Failed to load schedule data: ' + (data.message || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Failed to load schedule data.');
+    });
+}
 </script>
 
 <?= $this->include('template/footer') ?>
