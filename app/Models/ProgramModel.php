@@ -75,7 +75,7 @@ class ProgramModel extends Model
      */
     public function getActivePrograms()
     {
-        return $this->select('programs.*, departments.department_name')
+        return $this->select('programs.*, departments.department_name, departments.department_code')
                     ->join('departments', 'departments.id = programs.department_id')
                     ->where('programs.is_active', 1)
                     ->orderBy('departments.department_name', 'ASC')

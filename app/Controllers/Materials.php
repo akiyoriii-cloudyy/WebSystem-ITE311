@@ -80,6 +80,25 @@ class Materials extends BaseController
 
             $file = $this->request->getFile('file');
             if ($file && $file->isValid()) {
+                // ✅ Check for duplicate file name in the same course
+                $fileName = $file->getClientName();
+                $existingMaterial = $db->table('materials')
+                    ->where('course_id', (int)$course_id)
+                    ->where('file_name', $fileName)
+                    ->groupStart()
+                    ->where('status', 'active')
+                    ->orWhere('status IS NULL')
+                    ->groupEnd()
+                    ->get()
+                    ->getRowArray();
+                
+                if ($existingMaterial) {
+                    $materials = (new MaterialModel())->getMaterialsByCourse($course_id);
+                    return view('materials/upload', $this->prepareUploadViewData($course_id, $materials, [
+                        'error' => 'Error file causing of duplicate',
+                    ]));
+                }
+                
                 $uploadBase = rtrim(WRITEPATH, '/\\') . DIRECTORY_SEPARATOR . 'uploads';
                 $uploadDir  = $uploadBase . DIRECTORY_SEPARATOR . 'materials';
                 if (!is_dir($uploadDir)) {

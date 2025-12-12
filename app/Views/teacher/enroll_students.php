@@ -26,7 +26,12 @@
                             <select name="student_id" id="student_id" class="form-select" required>
                                 <option value="">-- Select Student --</option>
                                 <?php 
-                                $enrolledIds = array_column($enrolled_students, 'id');
+                                // Get enrolled user IDs (use user_id from enrollments or id from users)
+                                $enrolledIds = [];
+                                foreach ($enrolled_students as $enrolled) {
+                                    $enrolledIds[] = $enrolled['user_id'] ?? $enrolled['id'] ?? null;
+                                }
+                                $enrolledIds = array_filter($enrolledIds); // Remove null values
                                 foreach ($students as $student): 
                                     if (!in_array($student['id'], $enrolledIds)):
                                 ?>
@@ -160,8 +165,21 @@ $(document).ready(function() {
                     submitBtn.prop('disabled', false).text(originalText);
                 }
             },
-            error: function() {
-                alert('An error occurred. Please try again.');
+            error: function(xhr, status, error) {
+                let errorMessage = 'An error occurred. Please try again.';
+                if (xhr.responseJSON && xhr.responseJSON.message) {
+                    errorMessage = xhr.responseJSON.message;
+                } else if (xhr.responseText) {
+                    try {
+                        const response = JSON.parse(xhr.responseText);
+                        if (response.message) {
+                            errorMessage = response.message;
+                        }
+                    } catch (e) {
+                        console.error('Error parsing response:', e);
+                    }
+                }
+                alert('Error: ' + errorMessage);
                 submitBtn.prop('disabled', false).text(originalText);
             }
         });

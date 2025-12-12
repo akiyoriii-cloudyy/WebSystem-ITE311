@@ -8,6 +8,7 @@ use App\Models\EnrollmentModel;
 use App\Models\MaterialModel;
 use App\Models\NotificationModel;
 use App\Models\OtpTokenModel;
+use App\Models\CourseScheduleModel;
 
 class Auth extends BaseController
 {
@@ -363,7 +364,7 @@ class Auth extends BaseController
 
         // --- Load dashboard views by role ---
         if ($userRole === 'admin') {
-            $users = $userModel->select('id, name, email, role')->findAll();
+            $users = $userModel->select('id, name, email, role, status')->findAll();
             
             // Check if courses table exists
             $courses = [];
@@ -410,11 +411,35 @@ class Auth extends BaseController
                 $totalEnrollments = $db->table('enrollments')->countAllResults();
             }
 
+            // Fetch schedules with course and instructor info
+            $schedules = [];
+            $scheduleModel = new CourseScheduleModel();
+            if ($db->query("SHOW TABLES LIKE 'course_schedules'")->getNumRows() > 0) {
+                try {
+                    $result = $db->table('course_schedules')
+                        ->select('course_schedules.*, courses.title as course_title, courses.course_number, users.name as instructor_name')
+                        ->join('courses', 'courses.id = course_schedules.course_id', 'left')
+                        ->join('users', 'users.id = courses.instructor_id', 'left')
+                        ->orderBy('courses.title', 'ASC')
+                        ->orderBy('course_schedules.day_of_week', 'ASC')
+                        ->orderBy('course_schedules.start_time', 'ASC')
+                        ->get();
+                    
+                    if ($result !== false && is_object($result)) {
+                        $schedules = $result->getResultArray();
+                    }
+                } catch (\Exception $e) {
+                    log_message('error', 'Failed to fetch schedules: ' . $e->getMessage());
+                    $schedules = [];
+                }
+            }
+
             $data = [
                 'title'         => 'Admin Dashboard',
                 'user'          => $user,
                 'users'         => $users,
                 'courses'       => $courses,
+                'schedules'     => $schedules,
                 'announcements' => $announcements,
                 'user_name'     => $session->get('user_name'),
                 'user_role'     => $userRole,
@@ -766,6 +791,34 @@ class Auth extends BaseController
                 }
             }
             
+            // Fetch schedules for enrolled courses
+            $schedules = [];
+            $scheduleModel = new CourseScheduleModel();
+            if (!empty($enrolledCourses) && $db->query("SHOW TABLES LIKE 'course_schedules'")->getNumRows() > 0) {
+                try {
+                    // Get enrolled course IDs
+                    $enrolledCourseIds = array_column($enrolledCourses, 'course_id');
+                    
+                    if (!empty($enrolledCourseIds)) {
+                        $result = $db->table('course_schedules')
+                            ->select('course_schedules.*, courses.title as course_title, courses.course_number, users.name as instructor_name')
+                            ->join('courses', 'courses.id = course_schedules.course_id', 'left')
+                            ->join('users', 'users.id = courses.instructor_id', 'left')
+                            ->whereIn('course_schedules.course_id', $enrolledCourseIds)
+                            ->orderBy('course_schedules.day_of_week', 'ASC')
+                            ->orderBy('course_schedules.start_time', 'ASC')
+                            ->get();
+                        
+                        if ($result !== false && is_object($result)) {
+                            $schedules = $result->getResultArray();
+                        }
+                    }
+                } catch (\Exception $e) {
+                    log_message('error', 'Failed to fetch student schedules: ' . $e->getMessage());
+                    $schedules = [];
+                }
+            }
+            
             $announcements = $announcementModel->orderBy('created_at', 'DESC')->findAll();
 
             $data = [
@@ -773,6 +826,7 @@ class Auth extends BaseController
                 'user'            => $user,
                 'courses'         => $courses,
                 'enrolledCourses' => $enrolledCourses,
+                'schedules'       => $schedules,
                 'materialsByCourse' => $materialsByCourse,
                 'announcements'   => $announcements,
                 'user_name'       => $session->get('user_name'),
@@ -791,6 +845,307 @@ class Auth extends BaseController
         else {
             $session->destroy();
             return redirect()->to('/login')->with('error', 'Unknown user role detected.');
+        }
+    }
+
+    // ✅ Search Enrolled Courses (Student - AJAX)
+    public function searchEnrolledCourses()
+    {
+        $session = session();
+        $isAJAX = $this->request->isAJAX() || $this->request->hasHeader('X-Requested-With');
+
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'student') {
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Please login first.'
+                ])->setStatusCode(401);
+            }
+            return redirect()->to('/login')->with('error', 'Please login first.');
+        }
+
+        try {
+            $db = \Config\Database::connect();
+            $userId = $session->get('user_id');
+            $searchTerm = $this->request->getGet('q') ?? '';
+
+            if (empty($searchTerm)) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Search term is required'
+                ]);
+            }
+
+            // Build query exactly like the original, but with search conditions
+            $enrolledQuery = $db->table('enrollments')
+                ->select('enrollments.*, courses.id as course_id, courses.title, courses.description, courses.course_number, courses.instructor_id, users.name as instructor_name')
+                ->join('courses', 'enrollments.course_id = courses.id', 'left')
+                ->join('users', 'courses.instructor_id = users.id', 'left')
+                ->where('enrollments.user_id', $userId);
+            
+            // Add academic structure joins (exactly like original)
+            try {
+                if ($db->query("SHOW TABLES LIKE 'acad_years'")->getNumRows() > 0) {
+                    $enrolledQuery->select('acad_years.acad_year as acad_year', false);
+                    $enrolledQuery->join('acad_years', 'courses.acad_year_id = acad_years.id', 'left');
+                }
+                if ($db->query("SHOW TABLES LIKE 'semesters'")->getNumRows() > 0) {
+                    $enrolledQuery->select('semesters.semester as semester_name', false);
+                    $enrolledQuery->join('semesters', 'courses.semester_id = semesters.id', 'left');
+                }
+                if ($db->query("SHOW TABLES LIKE 'terms'")->getNumRows() > 0) {
+                    $enrolledQuery->select('terms.term as term_name', false);
+                    $enrolledQuery->join('terms', 'courses.term_id = terms.id', 'left');
+                }
+            } catch (\Exception $e) {
+                log_message('error', 'Failed to join academic tables for student search: ' . $e->getMessage());
+            }
+            
+            // Check which fields exist in courses table
+            $hasCourseNumber = false;
+            $hasCode = false;
+            try {
+                $hasCourseNumber = $db->query("SHOW COLUMNS FROM courses WHERE Field = 'course_number'")->getNumRows() > 0;
+                $hasCode = $db->query("SHOW COLUMNS FROM courses WHERE Field = 'code'")->getNumRows() > 0;
+            } catch (\Exception $e) {
+                // Ignore errors, use defaults
+            }
+            
+            // Add search conditions - use groupStart/groupEnd to properly group OR conditions
+            $enrolledQuery->groupStart()
+                ->like('courses.title', $searchTerm)
+                ->orLike('courses.description', $searchTerm)
+                ->orLike('users.name', $searchTerm);
+            
+            // Add course_number search if field exists
+            if ($hasCourseNumber) {
+                $enrolledQuery->orLike('courses.course_number', $searchTerm);
+            }
+            
+            // Add code search if field exists
+            if ($hasCode) {
+                $enrolledQuery->orLike('courses.code', $searchTerm);
+            }
+            
+            // Add academic structure search conditions within the same group
+            try {
+                if ($db->query("SHOW TABLES LIKE 'acad_years'")->getNumRows() > 0) {
+                    $enrolledQuery->orLike('acad_years.acad_year', $searchTerm);
+                }
+                if ($db->query("SHOW TABLES LIKE 'semesters'")->getNumRows() > 0) {
+                    $enrolledQuery->orLike('semesters.semester', $searchTerm);
+                }
+                if ($db->query("SHOW TABLES LIKE 'terms'")->getNumRows() > 0) {
+                    $enrolledQuery->orLike('terms.term', $searchTerm);
+                }
+            } catch (\Exception $e) {
+                log_message('error', 'Failed to add academic search: ' . $e->getMessage());
+            }
+            
+            $enrolledQuery->groupEnd()
+                ->orderBy('courses.title', 'ASC');
+            
+            $result = $enrolledQuery->get();
+            
+            if ($result !== false && is_object($result)) {
+                $enrolledCourses = $result->getResultArray();
+                
+                // Get assignment and quiz counts for each enrolled course (exactly like original)
+                foreach ($enrolledCourses as &$course) {
+                    $courseId = $course['course_id'];
+                    
+                    // Assignment count
+                    try {
+                        if ($db->query("SHOW TABLES LIKE 'assignments'")->getNumRows() > 0) {
+                            $course['assignment_count'] = $db->table('assignments')
+                                ->where('course_id', $courseId)
+                                ->countAllResults();
+                        } else {
+                            $course['assignment_count'] = 0;
+                        }
+                    } catch (\Exception $e) {
+                        $course['assignment_count'] = 0;
+                    }
+                    
+                    // Quiz count
+                    try {
+                        if ($db->query("SHOW TABLES LIKE 'quizzes'")->getNumRows() > 0) {
+                            $course['quiz_count'] = $db->table('quizzes')
+                                ->where('course_id', $courseId)
+                                ->countAllResults();
+                        } else {
+                            $course['quiz_count'] = 0;
+                        }
+                    } catch (\Exception $e) {
+                        $course['quiz_count'] = 0;
+                    }
+                    
+                    // Ensure all fields exist with proper defaults (exactly like original)
+                    $course['acad_year'] = !empty($course['acad_year']) ? $course['acad_year'] : 'N/A';
+                    $course['semester_name'] = !empty($course['semester_name']) ? $course['semester_name'] : 'N/A';
+                    $course['term_name'] = !empty($course['term_name']) ? $course['term_name'] : 'N/A';
+                    $course['course_number'] = !empty($course['course_number']) ? $course['course_number'] : '';
+                    $course['instructor_name'] = !empty($course['instructor_name']) ? $course['instructor_name'] : 'N/A';
+                    $course['assignment_count'] = $course['assignment_count'] ?? 0;
+                    $course['quiz_count'] = $course['quiz_count'] ?? 0;
+                }
+            } else {
+                $enrolledCourses = [];
+            }
+
+            $results = [];
+            foreach ($enrolledCourses as $course) {
+                $results[] = [
+                    'course_id' => $course['course_id'] ?? null,
+                    'title' => $course['title'] ?? 'Course #' . ($course['course_id'] ?? ''),
+                    'name' => $course['name'] ?? '',
+                    'course_number' => $course['course_number'] ?? '',
+                    'instructor_name' => $course['instructor_name'] ?? 'N/A',
+                    'acad_year' => $course['acad_year'] ?? 'N/A',
+                    'semester_name' => $course['semester_name'] ?? 'N/A',
+                    'term_name' => $course['term_name'] ?? 'N/A',
+                    'assignment_count' => $course['assignment_count'] ?? 0,
+                    'quiz_count' => $course['quiz_count'] ?? 0
+                ];
+            }
+
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'success',
+                    'results' => $results,
+                    'count' => count($results),
+                    'search_term' => $searchTerm
+                ]);
+            }
+        } catch (\Exception $e) {
+            log_message('error', 'Search enrolled courses error: ' . $e->getMessage());
+            log_message('error', 'Stack trace: ' . $e->getTraceAsString());
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Search failed: ' . $e->getMessage()
+                ])->setStatusCode(500);
+            }
+            throw $e;
+        }
+    }
+
+    // ✅ Search Schedules (Student - AJAX)
+    public function searchStudentSchedules()
+    {
+        $session = session();
+        $isAJAX = $this->request->isAJAX() || $this->request->hasHeader('X-Requested-With');
+
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'student') {
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Please login first.'
+                ])->setStatusCode(401);
+            }
+            return redirect()->to('/login')->with('error', 'Please login first.');
+        }
+
+        try {
+            $db = \Config\Database::connect();
+            $userId = $session->get('user_id');
+            $searchTerm = $this->request->getGet('q') ?? '';
+
+            if (empty($searchTerm)) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Search term is required'
+                ]);
+            }
+
+            // Get enrolled course IDs first
+            $enrolledCourseIds = [];
+            if ($db->query("SHOW TABLES LIKE 'enrollments'")->getNumRows() > 0) {
+                try {
+                    $enrolledResult = $db->table('enrollments')
+                        ->select('course_id')
+                        ->where('user_id', $userId)
+                        ->get();
+                    
+                    if ($enrolledResult !== false && is_object($enrolledResult)) {
+                        $enrolledCourseIds = array_column($enrolledResult->getResultArray(), 'course_id');
+                    }
+                } catch (\Exception $e) {
+                    log_message('error', 'Failed to fetch enrolled courses: ' . $e->getMessage());
+                }
+            }
+
+            if (empty($enrolledCourseIds)) {
+                return $this->response->setJSON([
+                    'status' => 'success',
+                    'results' => [],
+                    'count' => 0,
+                    'search_term' => $searchTerm
+                ]);
+            }
+
+            // Build query for schedules search
+            $query = $db->table('course_schedules')
+                ->select('course_schedules.*, courses.title as course_title, courses.course_number, users.name as instructor_name')
+                ->join('courses', 'courses.id = course_schedules.course_id', 'left')
+                ->join('users', 'users.id = courses.instructor_id', 'left')
+                ->whereIn('course_schedules.course_id', $enrolledCourseIds)
+                ->groupStart()
+                ->like('courses.title', $searchTerm)
+                ->orLike('courses.course_number', $searchTerm)
+                ->orLike('users.name', $searchTerm)
+                ->orLike('course_schedules.day_of_week', $searchTerm)
+                ->orLike('course_schedules.room', $searchTerm)
+                ->orLike('course_schedules.class_type', $searchTerm)
+                ->orLike('course_schedules.meeting_link', $searchTerm)
+                ->groupEnd()
+                ->orderBy('course_schedules.day_of_week', 'ASC')
+                ->orderBy('course_schedules.start_time', 'ASC');
+
+            $result = $query->get();
+
+            if ($result !== false && is_object($result)) {
+                $schedules = $result->getResultArray();
+            } else {
+                $schedules = [];
+            }
+
+            $results = [];
+            foreach ($schedules as $schedule) {
+                $results[] = [
+                    'id' => $schedule['id'],
+                    'course_id' => $schedule['course_id'],
+                    'course_title' => $schedule['course_title'] ?? 'N/A',
+                    'course_number' => $schedule['course_number'] ?? '',
+                    'instructor_name' => $schedule['instructor_name'] ?? 'N/A',
+                    'class_type' => $schedule['class_type'] ?? '',
+                    'day_of_week' => $schedule['day_of_week'] ?? '',
+                    'start_time' => $schedule['start_time'] ?? '',
+                    'end_time' => $schedule['end_time'] ?? '',
+                    'room' => $schedule['room'] ?? '',
+                    'meeting_link' => $schedule['meeting_link'] ?? ''
+                ];
+            }
+
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'success',
+                    'results' => $results,
+                    'count' => count($results),
+                    'search_term' => $searchTerm
+                ]);
+            }
+        } catch (\Exception $e) {
+            log_message('error', 'Student enrolled courses search error: ' . $e->getMessage());
+            log_message('error', 'Student enrolled courses search file: ' . $e->getFile() . ' line: ' . $e->getLine());
+            
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Search failed: ' . $e->getMessage()
+                ])->setStatusCode(500);
+            }
+            throw $e;
         }
     }
 }

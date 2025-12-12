@@ -38,9 +38,13 @@ class Admin extends BaseController
         $db = \Config\Database::connect();
         try {
             $result = $db->table('users')
-                        ->select('id, name, email, role, status, department_id, program_id, student_id, created_at')
-                        ->orderBy('status', 'ASC')
-                        ->orderBy('created_at', 'DESC')
+                        ->select('users.id, users.name, users.email, users.role, users.status, users.department_id, users.program_id, users.student_id, users.created_at,
+                                 departments.department_code, departments.department_name,
+                                 programs.program_code, programs.program_name')
+                        ->join('departments', 'departments.id = users.department_id', 'left')
+                        ->join('programs', 'programs.id = users.program_id', 'left')
+                        ->orderBy('users.status', 'ASC')
+                        ->orderBy('users.created_at', 'DESC')
                         ->get();
             
             if ($result !== false && is_object($result)) {
@@ -1297,22 +1301,31 @@ class Admin extends BaseController
 
         // Role changes are not processed via this endpoint
 
-        // ✅ Validate department/program for students
+        // ✅ Validate department/program for students - REQUIRED
         if (strtolower($user['role']) === 'student') {
-            if ($program_id && $department_id) {
-                // Verify program belongs to department
-                $progModel = new \App\Models\ProgramModel();
-                $program = $progModel->find($program_id);
-                if (!$program || $program['department_id'] != $department_id) {
-                    $errorMessage = 'Selected program does not belong to the selected department.';
-                    if ($this->request->isAJAX() || $this->request->hasHeader('X-Requested-With')) {
-                        return $this->response->setJSON([
-                            'status' => 'error',
-                            'message' => $errorMessage
-                        ])->setStatusCode(400);
-                    }
-                    return redirect()->to('/admin/users')->with('error', $errorMessage);
+            if (empty($department_id) || empty($program_id)) {
+                $errorMessage = 'Department and Program are required for students.';
+                if ($this->request->isAJAX() || $this->request->hasHeader('X-Requested-With')) {
+                    return $this->response->setJSON([
+                        'status' => 'error',
+                        'message' => $errorMessage
+                    ])->setStatusCode(400);
                 }
+                return redirect()->to('/admin/users')->with('error', $errorMessage);
+            }
+            
+            // Verify program belongs to department
+            $progModel = new \App\Models\ProgramModel();
+            $program = $progModel->find($program_id);
+            if (!$program || $program['department_id'] != $department_id) {
+                $errorMessage = 'Selected program does not belong to the selected department.';
+                if ($this->request->isAJAX() || $this->request->hasHeader('X-Requested-With')) {
+                    return $this->response->setJSON([
+                        'status' => 'error',
+                        'message' => $errorMessage
+                    ])->setStatusCode(400);
+                }
+                return redirect()->to('/admin/users')->with('error', $errorMessage);
             }
         } else {
             // Clear department/program for non-students
@@ -1486,8 +1499,15 @@ class Admin extends BaseController
             log_message('debug', 'Security helper not available: ' . $e->getMessage());
         }
 
+        // Check if request is AJAX (but don't require it - allow both AJAX and regular POST)
+        $isAjax = $this->request->isAJAX();
+        
         if ($this->request->getMethod() === 'POST') {
             $userModel = new UserModel();
+            
+            // Log the request for debugging
+            log_message('debug', 'Create user request received. AJAX: ' . ($isAjax ? 'yes' : 'no'));
+            log_message('debug', 'POST data: ' . json_encode($this->request->getPost()));
 
             $name = trim($this->request->getPost('name'));
             $email = $this->request->getPost('email');
@@ -1578,25 +1598,16 @@ class Admin extends BaseController
                 ]);
             }
 
-            // ✅ Validate department/program for students
-            if (strtolower($role) === 'student') {
-                if ($program_id && $department_id) {
-                    // Verify program belongs to department
-                    $progModel = new \App\Models\ProgramModel();
-                    $program = $progModel->find($program_id);
-                    if (!$program || $program['department_id'] != $department_id) {
-                        return $this->response->setJSON([
-                            'status' => 'error',
-                            'message' => 'Selected program does not belong to the selected department.'
-                        ]);
-                    }
-                }
-            } else {
+            // Department and Program will be assigned later in Manage Users section
+            // For now, allow creating users without department/program
+            if (strtolower($role) !== 'student') {
                 // Clear department/program for non-students
                 $department_id = null;
                 $program_id = null;
                 $student_id = null;
             }
+            // For students, department_id, program_id, and student_id can be null initially
+            // They will be assigned in the Manage Users section
 
             // Create user
             try {
@@ -1633,9 +1644,17 @@ class Admin extends BaseController
                         'csrf_hash' => csrf_hash()
                     ]);
                 } else {
+                    $errors = $userModel->errors();
+                    $errorMessage = 'Failed to create user.';
+                    if (!empty($errors)) {
+                        $errorMessage .= ' ' . implode(', ', $errors);
+                    } else {
+                        $errorMessage .= ' Please check the logs for more details.';
+                    }
+                    log_message('error', 'User creation failed. Errors: ' . json_encode($errors));
                     return $this->response->setJSON([
                         'status' => 'error',
-                        'message' => 'Failed to create user: ' . implode(', ', $userModel->errors())
+                        'message' => $errorMessage
                     ]);
                 }
             } catch (\Exception $e) {
@@ -1935,33 +1954,33 @@ class Admin extends BaseController
                 if ($courseDeptId || $courseProgId) {
                     $errors = [];
                     
-                    // Check department match
-                    if ($courseDeptId && $userDeptId != $courseDeptId) {
-                        $deptModel = new \App\Models\DepartmentModel();
-                        $userDept = $deptModel->find($userDeptId);
-                        $courseDept = $deptModel->find($courseDeptId);
-                        $userDeptName = $userDept ? $userDept['department_name'] : 'Unknown';
-                        $courseDeptName = $courseDept ? $courseDept['department_name'] : 'Unknown';
-                        $errors[] = "Student belongs to '{$userDeptName}' but course belongs to '{$courseDeptName}'.";
-                    }
-                    
-                    // Check program match (if both course and student have programs)
-                    if ($courseProgId && $userProgId && $userProgId != $courseProgId) {
-                        $progModel = new \App\Models\ProgramModel();
-                        $userProg = $progModel->find($userProgId);
-                        $courseProg = $progModel->find($courseProgId);
-                        $userProgName = $userProg ? $userProg['program_name'] : 'Unknown';
-                        $courseProgName = $courseProg ? $courseProg['program_name'] : 'Unknown';
-                        $errors[] = "Student is in '{$userProgName}' program but course is for '{$courseProgName}' program.";
-                    }
-                    
-                    // If student doesn't have department/program set, but course requires it
+                    // First, check if student is missing required department/program
                     if ($courseDeptId && !$userDeptId) {
                         $errors[] = "Student must have a department assigned. Please update student's department first.";
                     }
                     
                     if ($courseProgId && !$userProgId) {
                         $errors[] = "Student must have a program assigned. Please update student's program first.";
+                    }
+                    
+                    // Only check for mismatches if student has department/program assigned
+                    if ($courseDeptId && $userDeptId && $userDeptId != $courseDeptId) {
+                        $deptModel = new \App\Models\DepartmentModel();
+                        $userDept = $deptModel->find($userDeptId);
+                        $courseDept = $deptModel->find($courseDeptId);
+                        $userDeptName = (!empty($userDept) && isset($userDept['department_name'])) ? $userDept['department_name'] : 'Unknown';
+                        $courseDeptName = (!empty($courseDept) && isset($courseDept['department_name'])) ? $courseDept['department_name'] : 'Unknown';
+                        $errors[] = "Student belongs to '{$userDeptName}' but course belongs to '{$courseDeptName}'.";
+                    }
+                    
+                    // Check program match (only if both course and student have programs)
+                    if ($courseProgId && $userProgId && $userProgId != $courseProgId) {
+                        $progModel = new \App\Models\ProgramModel();
+                        $userProg = $progModel->find($userProgId);
+                        $courseProg = $progModel->find($courseProgId);
+                        $userProgName = (!empty($userProg) && isset($userProg['program_name'])) ? $userProg['program_name'] : 'Unknown';
+                        $courseProgName = (!empty($courseProg) && isset($courseProg['program_name'])) ? $courseProg['program_name'] : 'Unknown';
+                        $errors[] = "Student is in '{$userProgName}' program but course is for '{$courseProgName}' program.";
                     }
                     
                     if (!empty($errors)) {
@@ -2598,6 +2617,788 @@ class Admin extends BaseController
                 'status' => 'error',
                 'message' => 'Failed to delete schedule.'
             ]);
+        }
+    }
+
+    // ✅ Bulk Update Students - Assign Default Department/Program
+    public function bulkUpdateStudents()
+    {
+        $session = session();
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'admin') {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Unauthorized access'
+            ])->setStatusCode(403);
+        }
+
+        // Check if request is AJAX
+        if (!$this->request->isAJAX()) {
+            return $this->response->setJSON([
+                'status' => 'error',
+                'message' => 'Invalid request. Please use the form.'
+            ])->setStatusCode(400);
+        }
+
+        if ($this->request->getMethod() === 'POST') {
+            $defaultDeptId = $this->request->getPost('default_department_id');
+            $defaultProgId = $this->request->getPost('default_program_id');
+
+            if (empty($defaultDeptId) || empty($defaultProgId)) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Default department and program are required'
+                ]);
+            }
+
+            // Verify program belongs to department
+            $progModel = new \App\Models\ProgramModel();
+            $program = $progModel->find($defaultProgId);
+            if (!$program || $program['department_id'] != $defaultDeptId) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Selected program does not belong to the selected department.'
+                ]);
+            }
+
+            $userModel = new UserModel();
+            $db = \Config\Database::connect();
+
+            try {
+                // Get all students without department/program
+                // Use a simpler approach with raw SQL to avoid closure issues
+                $sql = "SELECT id FROM users 
+                        WHERE role = 'student' 
+                        AND (department_id IS NULL OR department_id = 0 OR program_id IS NULL OR program_id = 0)";
+                
+                $result = $db->query($sql);
+                
+                if ($result === false) {
+                    // Fallback: try query builder approach
+                    $query = $db->table('users')
+                        ->where('role', 'student')
+                        ->where('(department_id IS NULL OR department_id = 0 OR program_id IS NULL OR program_id = 0)', null, false);
+                    $result = $query->get();
+                }
+                
+                if ($result === false) {
+                    return $this->response->setJSON([
+                        'status' => 'error',
+                        'message' => 'Failed to fetch students from database.'
+                    ]);
+                }
+                
+                // Handle both query result and raw query result
+                if (is_object($result)) {
+                    $studentsArray = $result->getResultArray();
+                } else {
+                    $studentsArray = [];
+                }
+
+                $updated = 0;
+                foreach ($studentsArray as $student) {
+                    if (!isset($student['id']) || empty($student['id'])) {
+                        continue; // Skip if no valid ID
+                    }
+                    
+                    $updateData = [
+                        'department_id' => (int)$defaultDeptId,
+                        'program_id' => (int)$defaultProgId
+                    ];
+                    
+                    try {
+                        if ($userModel->update((int)$student['id'], $updateData)) {
+                            $updated++;
+                        }
+                    } catch (\Exception $updateError) {
+                        log_message('error', 'Failed to update student ID ' . $student['id'] . ': ' . $updateError->getMessage());
+                        // Continue with next student
+                    }
+                }
+
+                return $this->response->setJSON([
+                    'status' => 'success',
+                    'message' => "Successfully updated {$updated} student(s) with default department and program.",
+                    'updated_count' => $updated,
+                    'csrf_token' => csrf_token(),
+                    'csrf_hash' => csrf_hash()
+                ]);
+            } catch (\Exception $e) {
+                log_message('error', 'Bulk update students error: ' . $e->getMessage());
+                log_message('error', 'Stack trace: ' . $e->getTraceAsString());
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Error updating students: ' . $e->getMessage() . ' Please check the logs for more details.'
+                ]);
+            }
+        }
+
+        return $this->response->setJSON([
+            'status' => 'error',
+            'message' => 'Invalid request method'
+        ]);
+    }
+
+    // ✅ Search Schedules (AJAX)
+    public function searchSchedules()
+    {
+        $session = session();
+        $isAJAX = $this->request->isAJAX() || $this->request->hasHeader('X-Requested-With');
+
+        // Check if user is logged in and is admin
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'admin') {
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Please login first.'
+                ])->setStatusCode(401);
+            }
+            return redirect()->to('/login')->with('error', 'Please login first.');
+        }
+
+        try {
+            $db = \Config\Database::connect();
+            
+            // Get search term from GET
+            $searchTerm = $this->request->getGet('q') ?? '';
+
+            if (empty($searchTerm)) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Search term is required'
+                ]);
+            }
+
+            // Build query for schedules search
+            $query = $db->table('course_schedules')
+                ->select('course_schedules.*, courses.title as course_title, courses.course_number, users.name as instructor_name')
+                ->join('courses', 'courses.id = course_schedules.course_id', 'left')
+                ->join('users', 'users.id = courses.instructor_id', 'left');
+
+            // Search in multiple fields
+            $query->groupStart()
+                ->like('courses.title', $searchTerm)
+                ->orLike('courses.course_number', $searchTerm)
+                ->orLike('users.name', $searchTerm)
+                ->orLike('course_schedules.day_of_week', $searchTerm)
+                ->orLike('course_schedules.room', $searchTerm)
+                ->orLike('course_schedules.class_type', $searchTerm)
+                ->groupEnd();
+
+            $query->orderBy('courses.title', 'ASC')
+                ->orderBy('course_schedules.day_of_week', 'ASC')
+                ->orderBy('course_schedules.start_time', 'ASC');
+
+            $result = $query->get();
+
+            if ($result !== false && is_object($result)) {
+                $schedules = $result->getResultArray();
+            } else {
+                $schedules = [];
+            }
+
+            // Format results
+            $results = [];
+            foreach ($schedules as $schedule) {
+                $results[] = [
+                    'id' => $schedule['id'],
+                    'course_id' => $schedule['course_id'],
+                    'course_title' => $schedule['course_title'] ?? 'N/A',
+                    'course_number' => $schedule['course_number'] ?? '',
+                    'instructor_name' => $schedule['instructor_name'] ?? 'N/A',
+                    'class_type' => $schedule['class_type'] ?? '',
+                    'day_of_week' => $schedule['day_of_week'] ?? '',
+                    'start_time' => $schedule['start_time'] ?? '',
+                    'end_time' => $schedule['end_time'] ?? '',
+                    'room' => $schedule['room'] ?? ''
+                ];
+            }
+
+            // Return JSON for AJAX requests
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'success',
+                    'results' => $results,
+                    'count' => count($results),
+                    'search_term' => $searchTerm
+                ]);
+            }
+        } catch (\Exception $e) {
+            // Return error as JSON for AJAX requests
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Search failed: ' . $e->getMessage()
+                ])->setStatusCode(500);
+            }
+            throw $e;
+        }
+    }
+
+    // ✅ Search Users (AJAX)
+    public function searchUsers()
+    {
+        $session = session();
+        $isAJAX = $this->request->isAJAX() || $this->request->hasHeader('X-Requested-With');
+
+        // Check if user is logged in and is admin
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'admin') {
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Please login first.'
+                ])->setStatusCode(401);
+            }
+            return redirect()->to('/login')->with('error', 'Please login first.');
+        }
+
+        try {
+            $db = \Config\Database::connect();
+            
+            // Get search term from GET
+            $searchTerm = $this->request->getGet('q') ?? '';
+
+            if (empty($searchTerm)) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Search term is required'
+                ]);
+            }
+
+            // Build query for users search
+            $query = $db->table('users')
+                ->select('users.id, users.name, users.email, users.role, users.status')
+                ->groupStart()
+                ->like('users.name', $searchTerm)
+                ->orLike('users.email', $searchTerm)
+                ->orLike('users.role', $searchTerm)
+                ->groupEnd()
+                ->orderBy('users.status', 'ASC')
+                ->orderBy('users.created_at', 'DESC');
+
+            $result = $query->get();
+
+            if ($result !== false && is_object($result)) {
+                $users = $result->getResultArray();
+            } else {
+                $users = [];
+            }
+
+            // Format results
+            $results = [];
+            foreach ($users as $user) {
+                $results[] = [
+                    'id' => $user['id'],
+                    'name' => $user['name'] ?? 'N/A',
+                    'email' => $user['email'] ?? 'N/A',
+                    'role' => $user['role'] ?? '',
+                    'status' => $user['status'] ?? 'active'
+                ];
+            }
+
+            // Return JSON for AJAX requests
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'success',
+                    'results' => $results,
+                    'count' => count($results),
+                    'search_term' => $searchTerm
+                ]);
+            }
+        } catch (\Exception $e) {
+            // Return error as JSON for AJAX requests
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Search failed: ' . $e->getMessage()
+                ])->setStatusCode(500);
+            }
+            throw $e;
+        }
+    }
+
+    // ✅ Search Manage Users (AJAX) - More detailed search
+    public function searchManageUsers()
+    {
+        $session = session();
+        $isAJAX = $this->request->isAJAX() || $this->request->hasHeader('X-Requested-With');
+
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'admin') {
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Please login first.'
+                ])->setStatusCode(401);
+            }
+            return redirect()->to('/login')->with('error', 'Please login first.');
+        }
+
+        try {
+            $db = \Config\Database::connect();
+            $searchTerm = $this->request->getGet('q') ?? '';
+
+            if (empty($searchTerm)) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Search term is required'
+                ]);
+            }
+
+            $query = $db->table('users')
+                ->select('users.id, users.name, users.email, users.role, users.status, users.department_id, users.program_id, users.student_id,
+                         departments.department_code, departments.department_name,
+                         programs.program_code, programs.program_name')
+                ->join('departments', 'departments.id = users.department_id', 'left')
+                ->join('programs', 'programs.id = users.program_id', 'left')
+                ->groupStart()
+                ->like('users.name', $searchTerm)
+                ->orLike('users.email', $searchTerm)
+                ->orLike('users.role', $searchTerm)
+                ->orLike('users.student_id', $searchTerm)
+                ->orLike('departments.department_code', $searchTerm)
+                ->orLike('departments.department_name', $searchTerm)
+                ->orLike('programs.program_code', $searchTerm)
+                ->orLike('programs.program_name', $searchTerm)
+                ->groupEnd()
+                ->orderBy('users.status', 'ASC')
+                ->orderBy('users.created_at', 'DESC');
+
+            $result = $query->get();
+
+            if ($result !== false && is_object($result)) {
+                $users = $result->getResultArray();
+            } else {
+                $users = [];
+            }
+
+            $results = [];
+            foreach ($users as $user) {
+                $results[] = [
+                    'id' => $user['id'],
+                    'name' => $user['name'] ?? 'N/A',
+                    'email' => $user['email'] ?? 'N/A',
+                    'role' => $user['role'] ?? '',
+                    'status' => $user['status'] ?? 'active',
+                    'department_id' => $user['department_id'] ?? null,
+                    'department_code' => $user['department_code'] ?? '',
+                    'department_name' => $user['department_name'] ?? '',
+                    'program_id' => $user['program_id'] ?? null,
+                    'program_code' => $user['program_code'] ?? '',
+                    'program_name' => $user['program_name'] ?? '',
+                    'student_id' => $user['student_id'] ?? ''
+                ];
+            }
+
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'success',
+                    'results' => $results,
+                    'count' => count($results),
+                    'search_term' => $searchTerm
+                ]);
+            }
+        } catch (\Exception $e) {
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Search failed: ' . $e->getMessage()
+                ])->setStatusCode(500);
+            }
+            throw $e;
+        }
+    }
+
+    // ✅ Search Departments (AJAX)
+    // ✅ Search Departments (AJAX) - Updated to match working enrollment search pattern
+    public function searchDepartments()
+    {
+        $session = session();
+        $isAJAX = $this->request->isAJAX() || $this->request->hasHeader('X-Requested-With');
+
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'admin') {
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Please login first.'
+                ])->setStatusCode(401);
+            }
+            return redirect()->to('/login')->with('error', 'Please login first.');
+        }
+
+        try {
+            $db = \Config\Database::connect();
+            $searchTerm = $this->request->getGet('q') ?? '';
+
+            if (empty($searchTerm)) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Search term is required'
+                ]);
+            }
+
+            // Build query EXACTLY like working enrollment search - with select() first
+            $query = $db->table('departments')
+                ->select('departments.id, departments.department_code, departments.department_name, departments.description, departments.is_active')
+                ->groupStart()
+                ->like('departments.department_code', $searchTerm)
+                ->orLike('departments.department_name', $searchTerm)
+                ->orLike('departments.description', $searchTerm)
+                ->groupEnd()
+                ->orderBy('departments.department_name', 'ASC');
+
+            $result = $query->get();
+
+            if ($result !== false && is_object($result)) {
+                $departments = $result->getResultArray();
+            } else {
+                $departments = [];
+            }
+
+            $results = [];
+            foreach ($departments as $dept) {
+                $results[] = [
+                    'id' => $dept['id'],
+                    'department_code' => $dept['department_code'] ?? '',
+                    'department_name' => $dept['department_name'] ?? '',
+                    'description' => $dept['description'] ?? '',
+                    'is_active' => $dept['is_active'] ?? 1
+                ];
+            }
+
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'success',
+                    'results' => $results,
+                    'count' => count($results),
+                    'search_term' => $searchTerm
+                ]);
+            }
+        } catch (\Exception $e) {
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Search failed: ' . $e->getMessage()
+                ])->setStatusCode(500);
+            }
+            throw $e;
+        }
+    }
+
+    // ✅ Search Programs (AJAX) - Updated to match working enrollment search pattern
+    public function searchPrograms()
+    {
+        $session = session();
+        $isAJAX = $this->request->isAJAX() || $this->request->hasHeader('X-Requested-With');
+
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'admin') {
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Please login first.'
+                ])->setStatusCode(401);
+            }
+            return redirect()->to('/login')->with('error', 'Please login first.');
+        }
+
+        try {
+            $db = \Config\Database::connect();
+            $searchTerm = $this->request->getGet('q') ?? '';
+
+            if (empty($searchTerm)) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Search term is required'
+                ]);
+            }
+
+            // Build query EXACTLY like working enrollment search - with explicit select() and proper joins
+            $query = $db->table('programs')
+                ->select('programs.id, programs.department_id, programs.program_code, programs.program_name, programs.description, programs.is_active,
+                         departments.department_code, departments.department_name')
+                ->join('departments', 'departments.id = programs.department_id', 'left')
+                ->groupStart()
+                ->like('programs.program_code', $searchTerm)
+                ->orLike('programs.program_name', $searchTerm)
+                ->orLike('programs.description', $searchTerm)
+                ->orLike('departments.department_code', $searchTerm)
+                ->orLike('departments.department_name', $searchTerm)
+                ->groupEnd()
+                ->orderBy('programs.program_name', 'ASC');
+
+            $result = $query->get();
+
+            if ($result !== false && is_object($result)) {
+                $programs = $result->getResultArray();
+            } else {
+                $programs = [];
+            }
+
+            $results = [];
+            foreach ($programs as $prog) {
+                $results[] = [
+                    'id' => $prog['id'],
+                    'department_id' => $prog['department_id'] ?? null,
+                    'department_code' => $prog['department_code'] ?? '',
+                    'department_name' => $prog['department_name'] ?? '',
+                    'program_code' => $prog['program_code'] ?? '',
+                    'program_name' => $prog['program_name'] ?? '',
+                    'description' => $prog['description'] ?? '',
+                    'is_active' => $prog['is_active'] ?? 1
+                ];
+            }
+
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'success',
+                    'results' => $results,
+                    'count' => count($results),
+                    'search_term' => $searchTerm
+                ]);
+            }
+        } catch (\Exception $e) {
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Search failed: ' . $e->getMessage()
+                ])->setStatusCode(500);
+            }
+            throw $e;
+        }
+    }
+
+    // ✅ Search Enrollments (AJAX) - Fixed to match working student search pattern
+    public function searchEnrollments()
+    {
+        $session = session();
+        $isAJAX = $this->request->isAJAX() || $this->request->hasHeader('X-Requested-With');
+
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'admin') {
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Please login first.'
+                ])->setStatusCode(401);
+            }
+            return redirect()->to('/login')->with('error', 'Please login first.');
+        }
+
+        try {
+            $db = \Config\Database::connect();
+            $searchTerm = $this->request->getGet('q') ?? '';
+
+            if (empty($searchTerm)) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Search term is required'
+                ]);
+            }
+
+            // Check which course number field exists
+            $hasCourseNumber = false;
+            try {
+                $hasCourseNumber = $db->query("SHOW COLUMNS FROM courses WHERE Field = 'course_number'")->getNumRows() > 0;
+            } catch (\Exception $e) {
+                $hasCourseNumber = false;
+            }
+
+            // Build query EXACTLY like searchManageUsers - select individual fields
+            $query = $db->table('enrollments')
+                ->select('enrollments.id, enrollments.user_id, enrollments.course_id, 
+                         enrollments.enrolled_at, enrollments.enrollment_date,
+                         enrollments.completion_status, enrollments.final_grade,
+                         users.name as user_name, users.email, users.role,
+                         courses.title as course_title');
+            
+            // Add course_number field based on what exists
+            if ($hasCourseNumber) {
+                $query->select('courses.course_number', false);
+            } else {
+                $query->select('courses.code as course_number', false);
+            }
+            
+            $query->join('users', 'users.id = enrollments.user_id', 'inner')
+                ->join('courses', 'courses.id = enrollments.course_id', 'inner')
+                ->groupStart()
+                ->like('users.name', $searchTerm)
+                ->orLike('users.email', $searchTerm)
+                ->orLike('courses.title', $searchTerm);
+            
+            // Add course number/code search based on what field exists
+            if ($hasCourseNumber) {
+                $query->orLike('courses.course_number', $searchTerm);
+            } else {
+                $query->orLike('courses.code', $searchTerm);
+            }
+            
+            $query->orLike('enrollments.completion_status', $searchTerm)
+                ->groupEnd()
+                ->orderBy('enrollments.enrolled_at', 'DESC')
+                ->orderBy('enrollments.id', 'DESC');
+
+            $result = $query->get();
+
+            if ($result !== false && is_object($result)) {
+                $enrollments = $result->getResultArray();
+            } else {
+                $enrollments = [];
+            }
+
+            $results = [];
+            foreach ($enrollments as $enrollment) {
+                $results[] = [
+                    'id' => $enrollment['id'],
+                    'user_id' => $enrollment['user_id'] ?? null,
+                    'user_name' => $enrollment['user_name'] ?? 'N/A',
+                    'email' => $enrollment['email'] ?? 'N/A',
+                    'role' => $enrollment['role'] ?? 'student',
+                    'course_id' => $enrollment['course_id'] ?? null,
+                    'course_title' => $enrollment['course_title'] ?? 'N/A',
+                    'course_number' => $enrollment['course_number'] ?? '',
+                    'completion_status' => $enrollment['completion_status'] ?? 'ENROLLED',
+                    'enrolled_at' => $enrollment['enrolled_at'] ?? $enrollment['enrollment_date'] ?? null,
+                    'enrollment_date' => $enrollment['enrollment_date'] ?? null,
+                    'final_grade' => $enrollment['final_grade'] ?? null
+                ];
+            }
+
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'success',
+                    'results' => $results,
+                    'count' => count($results),
+                    'search_term' => $searchTerm
+                ]);
+            }
+        } catch (\Exception $e) {
+            log_message('error', 'Enrollment search error: ' . $e->getMessage());
+            
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Search failed: ' . $e->getMessage()
+                ])->setStatusCode(500);
+            }
+            throw $e;
+        }
+    }
+
+    // ✅ Search Courses (AJAX) - For Manage Courses page
+    public function searchCourses()
+    {
+        $session = session();
+        $isAJAX = $this->request->isAJAX() || $this->request->hasHeader('X-Requested-With');
+
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'admin') {
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Please login first.'
+                ])->setStatusCode(401);
+            }
+            return redirect()->to('/login')->with('error', 'Please login first.');
+        }
+
+        try {
+            $db = \Config\Database::connect();
+            $searchTerm = $this->request->getGet('q') ?? '';
+
+            if (empty($searchTerm)) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Search term is required'
+                ]);
+            }
+
+            // Check which fields exist in courses table
+            $hasCourseNumber = false;
+            $hasCode = false;
+            try {
+                $hasCourseNumber = $db->query("SHOW COLUMNS FROM courses WHERE Field = 'course_number'")->getNumRows() > 0;
+                $hasCode = $db->query("SHOW COLUMNS FROM courses WHERE Field = 'code'")->getNumRows() > 0;
+            } catch (\Exception $e) {
+                // Ignore errors, use defaults
+            }
+
+            // Build query EXACTLY like main manageCourses() method - use courses.*
+            // Match the exact pattern from working searchEnrollments
+            $query = $db->table('courses')
+                ->select('courses.*, users.name as instructor_name')
+                ->join('users', 'courses.instructor_id = users.id', 'left')
+                ->groupStart()
+                ->like('courses.title', $searchTerm)
+                ->orLike('courses.description', $searchTerm)
+                ->orLike('users.name', $searchTerm);
+            
+            // Add course_number search if field exists
+            if ($hasCourseNumber) {
+                $query->orLike('courses.course_number', $searchTerm);
+            }
+            
+            // Add code search if field exists
+            if ($hasCode) {
+                $query->orLike('courses.code', $searchTerm);
+            }
+            
+            $query->groupEnd()
+                ->orderBy('courses.created_at', 'DESC');
+
+            $result = $query->get();
+
+            if ($result !== false && is_object($result)) {
+                $courses = $result->getResultArray();
+            } else {
+                $courses = [];
+            }
+
+            // Debug: Test if courses exist at all (without search)
+            $testQuery = $db->table('courses')
+                ->select('courses.*, users.name as instructor_name')
+                ->join('users', 'courses.instructor_id = users.id', 'left')
+                ->limit(5)
+                ->get();
+            $testCourses = $testQuery->getResultArray();
+            
+            // Debug: Log search results
+            log_message('debug', 'Course search - Search term: [' . $searchTerm . ']');
+            log_message('debug', 'Course search - Total courses in DB: ' . count($testCourses));
+            log_message('debug', 'Course search - Found ' . count($courses) . ' results');
+            if (!empty($testCourses)) {
+                log_message('debug', 'Course search - Sample course title: ' . ($testCourses[0]['title'] ?? 'N/A'));
+            }
+            if (!empty($courses)) {
+                log_message('debug', 'Course search - First result title: ' . ($courses[0]['title'] ?? 'N/A'));
+            }
+
+            $results = [];
+            foreach ($courses as $course) {
+                $results[] = [
+                    'id' => $course['id'],
+                    'title' => $course['title'] ?? $course['name'] ?? 'Course #' . $course['id'],
+                    'name' => $course['name'] ?? '',
+                    'course_number' => $course['course_number'] ?? $course['code'] ?? '',
+                    'description' => $course['description'] ?? '',
+                    'instructor_name' => $course['instructor_name'] ?? null
+                ];
+            }
+
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'success',
+                    'results' => $results,
+                    'count' => count($results),
+                    'search_term' => $searchTerm
+                ]);
+            }
+        } catch (\Exception $e) {
+            log_message('error', 'Course search error: ' . $e->getMessage());
+            log_message('error', 'Course search file: ' . $e->getFile() . ' line: ' . $e->getLine());
+            
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Search failed: ' . $e->getMessage()
+                ])->setStatusCode(500);
+            }
+            throw $e;
         }
     }
 }

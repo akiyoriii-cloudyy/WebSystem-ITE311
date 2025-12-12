@@ -17,9 +17,48 @@
   
   <div id="alertBox" class="alert d-none"></div>
 
+  <!-- ✅ Search Form for Courses -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <form id="searchCoursesForm" method="GET" action="javascript:void(0);">
+        <div class="row">
+          <div class="col-md-10">
+            <div class="input-group">
+              <span class="input-group-text">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-search" viewBox="0 0 16 16">
+                  <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+                </svg>
+              </span>
+              <input 
+                type="text" 
+                class="form-control" 
+                id="searchCoursesInput" 
+                name="q" 
+                placeholder="Search courses by title, course number, or instructor..." 
+                value=""
+                autocomplete="off">
+            </div>
+          </div>
+          <div class="col-md-2">
+            <button type="submit" class="btn btn-primary w-100" id="searchCoursesBtn">
+              Search
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ✅ Search Results Info -->
+  <div id="searchCoursesInfo" class="mb-3" style="display: none;">
+    <p class="text-muted">
+      <span id="coursesResultCount">0</span> result(s) found
+    </p>
+  </div>
+
   <?php if (!empty($courses)): ?>
     <div class="table-responsive">
-      <table class="table table-bordered align-middle">
+      <table class="table table-bordered align-middle" id="coursesTable">
         <thead class="table-light">
           <tr>
             <th>#</th>
@@ -29,7 +68,7 @@
             <th>Actions</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody id="coursesTableBody">
           <?php foreach ($courses as $i => $c): ?>
             <tr>
               <td><?= $i + 1 ?></td>
@@ -59,6 +98,9 @@
           <?php endforeach; ?>
         </tbody>
       </table>
+    </div>
+    <div id="noCoursesSearchResults" style="display: none;">
+      <p class="text-muted mb-0 text-center">No courses found matching your search.</p>
     </div>
   <?php else: ?>
     <div class="alert alert-info">No courses found.</div>
@@ -248,9 +290,10 @@
   </div>
 </div>
 
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<?= $this->include('template/footer') ?>
+
 <script>
+// All jQuery code after footer to ensure jQuery is loaded
 $(document).ready(function() {
     // Create Course Form Submit
     $('#createCourseForm').submit(function(e) {
@@ -452,7 +495,133 @@ $(document).ready(function() {
             }
         });
     });
+
+    // ✅ COURSES SEARCH FUNCTIONALITY - Updated to match working enrollment search pattern
+    let coursesSearchTimeout;
+    let isSearchingCourses = false;
+    const originalCoursesHtml = $('#coursesTableBody').html(); // Store original courses
+    
+    function performCoursesSearch(searchTerm) {
+        if (isSearchingCourses) return; // Prevent multiple simultaneous searches
+        
+        isSearchingCourses = true;
+        const $searchBtn = $('#searchCoursesBtn');
+        const originalBtnText = $searchBtn.html();
+        
+        // Show loading indicator
+        $searchBtn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Searching...');
+
+        $.ajax({
+            url: "<?= base_url('admin/search/courses') ?>",
+            type: "GET",
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            data: {
+                q: searchTerm
+            },
+            dataType: 'json',
+            success: function(response) {
+                isSearchingCourses = false;
+                $searchBtn.prop('disabled', false).html(originalBtnText);
+
+                console.log('Course search response:', response); // Debug log
+
+                if (response.status === 'success') {
+                    // Update search info
+                    $('#coursesResultCount').text(response.count);
+                    $('#searchCoursesInfo').show();
+
+                    // Clear existing courses
+                    $('#coursesTableBody').empty();
+                    $('#noCoursesSearchResults').hide();
+
+                    if (response.results && response.results.length > 0) {
+                        // Build table rows from search results
+                        response.results.forEach(function(course, index) {
+                            const courseNumber = course.course_number || '';
+                            const courseNumberHtml = courseNumber 
+                                ? '<span class="badge bg-secondary">' + courseNumber + '</span>'
+                                : '<span class="text-muted">Not Set</span>';
+                            
+                            const row = '<tr>' +
+                                '<td>' + (index + 1) + '</td>' +
+                                '<td>' +
+                                '<span class="course-number-display" data-course-id="' + course.id + '">' + courseNumberHtml + '</span>' +
+                                '<button type="button" class="btn btn-sm btn-outline-secondary ms-2 edit-course-number-btn" ' +
+                                'data-course-id="' + course.id + '" ' +
+                                'data-course-number="' + (courseNumber.replace(/"/g, '&quot;')) + '" ' +
+                                'title="Edit Course Number">' +
+                                '<i class="bi bi-pencil"></i> Edit' +
+                                '</button>' +
+                                '</td>' +
+                                '<td>' + (course.title || course.name || 'Course #' + course.id) + '</td>' +
+                                '<td>' + (course.instructor_name || '—') + '</td>' +
+                                '<td>' +
+                                '<a class="btn btn-sm btn-primary" href="<?= base_url("admin/course/") ?>' + course.id + '/upload">Upload Materials</a>' +
+                                '</td>' +
+                            '</tr>';
+                            $('#coursesTableBody').append(row);
+                        });
+                    } else {
+                        $('#noCoursesSearchResults').show();
+                    }
+                } else {
+                    $('#searchCoursesInfo').hide();
+                    alert('Search failed: ' + (response.message || 'Unknown error'));
+                }
+            },
+            error: function(xhr, status, error) {
+                isSearchingCourses = false;
+                $searchBtn.prop('disabled', false).html(originalBtnText);
+                $('#searchCoursesInfo').hide();
+                console.error('Search error:', error);
+                alert('An error occurred during search. Please try again.');
+            }
+        });
+    }
+
+    // Automatic search as user types (with debouncing)
+    $('#searchCoursesInput').on('input', function() {
+        const searchTerm = $(this).val().trim();
+        clearTimeout(coursesSearchTimeout);
+        
+        if (searchTerm === '') {
+            clearTimeout(coursesSearchTimeout);
+            coursesSearchTimeout = setTimeout(function() {
+                $('#coursesTableBody').html(originalCoursesHtml);
+                $('#searchCoursesInfo').hide();
+                $('#noCoursesSearchResults').hide();
+            }, 300);
+        } else {
+            coursesSearchTimeout = setTimeout(function() {
+                performCoursesSearch(searchTerm);
+            }, 500);
+        }
+    });
+
+    // Submit form for courses search
+    $('#searchCoursesForm').on('submit', function(e) {
+        e.preventDefault();
+        
+        // Clear any pending timeout
+        clearTimeout(coursesSearchTimeout);
+        
+        // Perform search immediately when form is submitted
+        const searchTerm = $('#searchCoursesInput').val().trim();
+        if (searchTerm === '') {
+            $('#coursesTableBody').html(originalCoursesHtml);
+            $('#searchCoursesInfo').hide();
+            $('#noCoursesSearchResults').hide();
+        } else {
+            performCoursesSearch(searchTerm);
+        }
+    });
+
+    // Also handle search button click directly
+    $('#searchCoursesBtn').on('click', function(e) {
+        e.preventDefault();
+        $('#searchCoursesForm').submit();
+    });
 });
 </script>
-
-<?= $this->include('template/footer') ?>

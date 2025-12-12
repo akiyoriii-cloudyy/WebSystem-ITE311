@@ -20,7 +20,7 @@
                 <div class="card-body">
                     <p class="text-muted mb-3">Create new users (Admin, Teacher, or Student)</p>
                     
-                    <form id="createUserForm">
+                    <form id="createUserForm" method="POST" action="javascript:void(0);" novalidate>
                         <?= csrf_field() ?>
                         <input type="hidden" name="throughly_token" id="throughly_token" value="">
                         <div class="mb-3">
@@ -56,49 +56,6 @@
                             </select>
                         </div>
 
-                        <!-- Department and Program (for students only) -->
-                        <div id="studentFields" style="display: none;">
-                            <div class="mb-3">
-                                <label for="department_id" class="form-label">Department</label>
-                                <select class="form-select" id="department_id" name="department_id">
-                                    <option value="">-- Select Department (Optional) --</option>
-                                    <?php if (!empty($departments ?? [])): ?>
-                                        <?php foreach ($departments ?? [] as $dept): ?>
-                                            <option value="<?= esc($dept['id']) ?>">
-                                                <?= esc($dept['department_code']) ?> - <?= esc($dept['department_name']) ?>
-                                            </option>
-                                        <?php endforeach; ?>
-                                    <?php endif; ?>
-                                </select>
-                                <small class="form-text text-muted">Required for students to enroll in department-specific courses</small>
-                            </div>
-                            
-                            <div class="mb-3">
-                                <label for="program_id" class="form-label">Program</label>
-                                <select class="form-select" id="program_id" name="program_id">
-                                    <option value="">-- Select Program (Optional) --</option>
-                                    <?php if (!empty($programs ?? [])): ?>
-                                        <?php foreach ($programs ?? [] as $prog): ?>
-                                            <option value="<?= esc($prog['id']) ?>" data-department-id="<?= esc($prog['department_id'] ?? '') ?>">
-                                                <?= esc($prog['program_code']) ?> - <?= esc($prog['program_name']) ?>
-                                                <?php if (!empty($prog['department_name'])): ?>
-                                                    (<?= esc($prog['department_code'] ?? '') ?>)
-                                                <?php endif; ?>
-                                            </option>
-                                        <?php endforeach; ?>
-                                    <?php endif; ?>
-                                </select>
-                                <small class="form-text text-muted">Required for students to enroll in program-specific courses</small>
-                            </div>
-                            
-                            <div class="mb-3">
-                                <label for="student_id" class="form-label">Student ID</label>
-                                <input type="text" class="form-control" id="student_id" name="student_id" 
-                                       placeholder="e.g., 2024-00123" maxlength="50">
-                                <small class="form-text text-muted">Optional student identification number</small>
-                            </div>
-                        </div>
-
                         <!-- Auto-generated Password Display -->
                         <div class="mb-3">
                             <label class="form-label">Auto-Generated Password</label>
@@ -117,8 +74,8 @@
                             <small class="text-muted">Auto-filled for confirmation</small>
                         </div>
                         
-                        <button type="submit" class="btn btn-primary w-100" id="createUserBtn">
-                            Create User
+                        <button type="button" class="btn btn-primary w-100" id="createUserBtn">
+                            <i class="bi bi-person-plus"></i> Create User
                         </button>
                     </form>
                     
@@ -129,261 +86,140 @@
     </div>
 </div>
 
-<!-- jQuery and Bootstrap JS -->
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-
 <script>
-$(document).ready(function() {
-    // Function to get CSRF token from cookie
-    function getCookie(name) {
-        const value = `; ${document.cookie}`;
-        const parts = value.split(`; ${name}=`);
-        if (parts.length === 2) return parts.pop().split(';').shift();
-        return null;
-    }
-
-    // Function to get CSRF token
-    function getCsrfToken() {
-        const csrfTokenName = '<?= csrf_token() ?>';
-        const csrfCookieName = '<?= config("Security")->cookieName ?>';
-        return getCookie(csrfCookieName) || 
-               $('meta[name="csrf-hash"]').attr('content') || 
-               '<?= csrf_hash() ?>';
-    }
-
-    // Auto-generated password
-    const AUTO_PASSWORD = 'MarkyLMS12345';
-    
-    // Function to copy password to clipboard
-    window.copyPassword = function() {
-        const passwordField = document.getElementById('generatedPassword');
-        passwordField.select();
-        passwordField.setSelectionRange(0, 99999); // For mobile devices
-        document.execCommand('copy');
-        
-        // Show feedback
-        const btn = event.target;
-        const originalText = btn.innerHTML;
-        btn.innerHTML = '✓ Copied!';
-        btn.classList.add('btn-success');
-        btn.classList.remove('btn-outline-secondary');
-        
-        setTimeout(function() {
-            btn.innerHTML = originalText;
-            btn.classList.remove('btn-success');
-            btn.classList.add('btn-outline-secondary');
-        }, 2000);
-    };
-
-    // Create User Form
-    $('#createUserForm').on('submit', function(e) {
-        e.preventDefault();
-        
-        const $btn = $('#createUserBtn');
-        const originalText = $btn.html();
-        $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Creating...');
-        
-        const csrfToken = getCsrfToken();
-        const csrfTokenName = '<?= csrf_token() ?>';
-        
-        // Use auto-generated password
-        const autoPassword = AUTO_PASSWORD;
-        
-        // Validate name before submission - reject invalid characters and throughly application patterns
-        let name = $('#name').val().trim();
-        
-        // Only allow: letters, numbers, spaces, hyphens, apostrophes, periods, commas
-        // Reject: brackets [], semicolons ;, and other special characters
-        const namePattern = /^[\p{L}\p{N}\s\-\'\.\,]+$/u;
-        if (!namePattern.test(name)) {
-            $btn.prop('disabled', false).html(originalText);
-            let alertHtml = '<div class="alert alert-danger alert-dismissible fade show" role="alert">' +
-                'Invalid characters detected in name. Only letters, numbers, spaces, hyphens, apostrophes, periods, and commas are allowed.' +
-                '<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>';
-            $('#createUserAlert').html(alertHtml);
-            $('#name').focus().select();
-            return false;
+// Wait for jQuery and DOM to be ready
+(function() {
+    function initUserManagement() {
+        if (typeof jQuery === 'undefined') {
+            console.error('jQuery is not loaded!');
+            setTimeout(initUserManagement, 100);
+            return;
         }
         
-        // Also check for specific "throughly application" security patterns
-        const throughlyPatterns = [
-            'ˈthȯr-',
-            'ˈthə-(ˌ)rō',
-            'ˈthȯr-;',
-            'θʌrəθɜːroʊ',
-            '=+[\';/.,.\'',
-            '[][];;;;[[',
-            '[[',
-            ']]',
-            ';;'
-        ];
-        let hasInvalidChars = false;
+        var $ = jQuery;
         
-        // Check if name contains throughly application patterns (case-insensitive)
-        const nameLower = name.toLowerCase();
-        for (let i = 0; i < throughlyPatterns.length; i++) {
-            const patternLower = throughlyPatterns[i].toLowerCase();
-            if (nameLower.indexOf(patternLower) !== -1) {
-                hasInvalidChars = true;
-                break;
-            }
-        }
-        
-        if (hasInvalidChars) {
-            $btn.prop('disabled', false).html(originalText);
-            let alertHtml = '<div class="alert alert-danger alert-dismissible fade show" role="alert">' +
-                'Invalid characters detected in name. Security characters are not allowed.' +
-                '<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>';
-            $('#createUserAlert').html(alertHtml);
-            $('#name').focus().select();
-            return false;
-        }
-        
-        // Get fresh throughly token before submission if not already set
-        let throughlyToken = $('#throughly_token').val();
-        if (!throughlyToken) {
-            $.ajax({
-                url: '<?= base_url('admin/users/get-token') ?>',
-                type: 'GET',
-                dataType: 'json',
-                async: false,
-                success: function(response) {
-                    if (response.status === 'success' && response.throughly_token) {
-                        throughlyToken = response.throughly_token;
-                        $('#throughly_token').val(throughlyToken);
-                    }
-                }
-            });
-        }
-        
-        $.ajax({
-            url: '<?= base_url('admin/users/create') ?>',
-            type: 'POST',
-            headers: {
-                'X-Requested-With': 'XMLHttpRequest',
-                'X-CSRF-TOKEN': csrfToken
-            },
-            data: {
-                name: name, // Already validated and sanitized above
-                email: $('#email').val(),
-                password: autoPassword, // Auto-generated password
-                role: $('#role').val(),
-                status: $('#status').val(),
-                department_id: $('#department_id').val() || '',
-                program_id: $('#program_id').val() || '',
-                student_id: $('#student_id').val() || '',
-                throughly_token: throughlyToken,
-                [csrfTokenName]: csrfToken
-            },
-            dataType: 'json',
-            success: function(response) {
-                $btn.prop('disabled', false).html(originalText);
+        $(document).ready(function() {
+            console.log('=== USER MANAGEMENT INITIALIZED ===');
+            console.log('jQuery version:', $.fn.jquery);
+            console.log('Form found:', $('#createUserForm').length);
+            console.log('Button found:', $('#createUserBtn').length);
+            
+            // Function to copy password to clipboard
+            window.copyPassword = function() {
+                var passwordField = document.getElementById('generatedPassword');
+                passwordField.select();
+                passwordField.setSelectionRange(0, 99999);
+                document.execCommand('copy');
                 
-                // Update CSRF token
-                if (response.csrf_hash) {
-                    $('meta[name="csrf-hash"]').attr('content', response.csrf_hash);
-                }
-                
-                let alertClass = response.status === 'success' ? 'alert-success' : 'alert-danger';
-                let alertHtml = '<div class="alert ' + alertClass + ' alert-dismissible fade show" role="alert">' +
-                    response.message +
-                    '<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>';
-                
-                $('#createUserAlert').html(alertHtml);
-                
-                if (response.status === 'success') {
-                    // Reset form (but keep auto-generated password visible)
-                    $('#name').val('');
-                    $('#email').val('');
-                    $('#role').val('');
-                    $('#status').val('active');
-                    $('#department_id').val('');
-                    $('#program_id').val('');
-                    $('#student_id').val('');
-                    $('#studentFields').hide();
-                    $('#generatedPassword').val(AUTO_PASSWORD);
-                    $('#confirmPassword').val(AUTO_PASSWORD);
-                    
-                    // Auto-dismiss after 3 seconds
-                    setTimeout(function() {
-                        $('.alert-success').fadeOut(function() {
-                            $(this).remove();
-                        });
-                    }, 3000);
-                } else {
-                    // Auto-dismiss error after 5 seconds
-                    setTimeout(function() {
-                        $('.alert-danger').fadeOut(function() {
-                            $(this).remove();
-                        });
-                    }, 5000);
-                }
-            },
-            error: function(xhr) {
-                $btn.prop('disabled', false).html(originalText);
-                
-                let errorMessage = 'An error occurred. Please try again.';
-                if (xhr.responseJSON && xhr.responseJSON.message) {
-                    errorMessage = xhr.responseJSON.message;
-                }
-                
-                let alertHtml = '<div class="alert alert-danger alert-dismissible fade show" role="alert">' +
-                    errorMessage +
-                    '<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>';
-                
-                $('#createUserAlert').html(alertHtml);
+                var btn = event.target;
+                var originalText = btn.innerHTML;
+                btn.innerHTML = '✓ Copied!';
+                btn.classList.add('btn-success');
+                btn.classList.remove('btn-outline-secondary');
                 
                 setTimeout(function() {
-                    $('.alert-danger').fadeOut(function() {
-                        $(this).remove();
-                    });
-                }, 5000);
-            }
+                    btn.innerHTML = originalText;
+                    btn.classList.remove('btn-success');
+                    btn.classList.add('btn-outline-secondary');
+                }, 2000);
+            };
+            
+            // Prevent form default submission
+            $('#createUserForm').on('submit', function(e) {
+                e.preventDefault();
+                return false;
+            });
+            
+            // Button click handler - main handler for creating users
+            $('#createUserBtn').off('click').on('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log('=== BUTTON CLICKED - STARTING USER CREATION ===');
+                
+                // Get form values
+                var name = $('#name').val().trim();
+                var email = $('#email').val().trim();
+                var role = $('#role').val();
+                var status = $('#status').val() || 'active';
+                var $btn = $(this);
+                var originalText = $btn.html();
+                
+                // Validation
+                if (!name) {
+                    $('#createUserAlert').html('<div class="alert alert-danger">Please enter a name.</div>');
+                    $('#name').focus();
+                    return;
+                }
+                
+                if (!email) {
+                    $('#createUserAlert').html('<div class="alert alert-danger">Please enter an email.</div>');
+                    $('#email').focus();
+                    return;
+                }
+                
+                if (!role) {
+                    $('#createUserAlert').html('<div class="alert alert-danger">Please select a role.</div>');
+                    $('#role').focus();
+                    return;
+                }
+                
+                // Get CSRF token
+                var csrfTokenName = '<?= csrf_token() ?>';
+                var csrfToken = $('input[name="' + csrfTokenName + '"]').val() || $('meta[name="csrf-hash"]').attr('content') || '<?= csrf_hash() ?>';
+                
+                // Prepare data
+                var formData = {
+                    name: name,
+                    email: email,
+                    password: 'MarkyLMS12345',
+                    role: role,
+                    status: status
+                };
+                formData[csrfTokenName] = csrfToken;
+                
+                // Disable button
+                $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Creating...');
+                
+                // Send AJAX request
+                $.ajax({
+                    url: '<?= base_url('admin/users/create') ?>',
+                    type: 'POST',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRF-TOKEN': csrfToken
+                    },
+                    data: formData,
+                    dataType: 'json',
+                    success: function(response) {
+                        console.log('Response:', response);
+                        $btn.prop('disabled', false).html(originalText);
+                        
+                        var alertClass = response.status === 'success' ? 'alert-success' : 'alert-danger';
+                        $('#createUserAlert').html('<div class="alert ' + alertClass + '">' + response.message + '</div>');
+                        
+                        if (response.status === 'success') {
+                            $('#name').val('');
+                            $('#email').val('');
+                            $('#role').val('');
+                            $('#status').val('active');
+                        }
+                    },
+                    error: function(xhr) {
+                        console.error('Error:', xhr);
+                        $btn.prop('disabled', false).html(originalText);
+                        var errorMsg = xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : 'An error occurred. Please try again.';
+                        $('#createUserAlert').html('<div class="alert alert-danger">' + errorMsg + '</div>');
+                    }
+                });
+            });
+            
+            console.log('Button handler attached successfully');
         });
-    });
-});
-
-// Show/hide student fields based on role
-$('#role').on('change', function() {
-    const role = $(this).val();
-    if (role === 'student') {
-        $('#studentFields').slideDown();
-    } else {
-        $('#studentFields').slideUp();
-        $('#department_id').val('');
-        $('#program_id').val('');
-        $('#student_id').val('');
     }
-});
-
-// Filter programs based on selected department
-$('#department_id').on('change', function() {
-    const selectedDeptId = $(this).val();
-    const $programSelect = $('#program_id');
-    const $programOptions = $programSelect.find('option[data-department-id]');
     
-    // Reset program selection
-    $programSelect.val('');
-    
-    if (!selectedDeptId) {
-        // Show all programs if no department selected
-        $programOptions.show();
-        $programSelect.find('option[value=""]').show();
-    } else {
-        // Hide all programs first
-        $programOptions.hide();
-        $programSelect.find('option[value=""]').show();
-        
-        // Show only programs that belong to selected department
-        $programOptions.each(function() {
-            const progDeptId = $(this).attr('data-department-id');
-            if (progDeptId == selectedDeptId) {
-                $(this).show();
-            }
-        });
-    }
-});
+    // Start initialization
+    initUserManagement();
+})();
 </script>
 
 <?= $this->include('template/footer') ?>

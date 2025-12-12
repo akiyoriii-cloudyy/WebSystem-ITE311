@@ -193,6 +193,207 @@
             </div>
         </div>
 
+        <!-- Course Schedules Overview -->
+        <div class="card mt-4">
+            <div class="card-header fw-bold d-flex justify-content-between align-items-center">
+                <span>Course Schedules Overview</span>
+                <a href="<?= site_url('admin/schedules') ?>" class="btn btn-sm btn-warning">Manage Schedules</a>
+            </div>
+            <div class="card-body">
+                <!-- ✅ Search Form for Schedules -->
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <form id="searchSchedulesForm" method="GET" action="javascript:void(0);">
+                            <div class="row">
+                                <div class="col-md-10">
+                                    <div class="input-group">
+                                        <span class="input-group-text">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-search" viewBox="0 0 16 16">
+                                                <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+                                            </svg>
+                                        </span>
+                                        <input 
+                                            type="text" 
+                                            class="form-control" 
+                                            id="searchSchedulesInput" 
+                                            name="q" 
+                                            placeholder="Search schedules by course, instructor, day, or room..." 
+                                            value=""
+                                            autocomplete="off">
+                                    </div>
+                                </div>
+                                <div class="col-md-2">
+                                    <button type="submit" class="btn btn-primary w-100" id="searchSchedulesBtn">
+                                        Search
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- ✅ Search Results Info for Schedules -->
+                <div id="searchSchedulesInfo" class="mb-3" style="display: none;">
+                    <p class="text-muted">
+                        <span id="schedulesResultCount">0</span> result(s) found
+                    </p>
+                </div>
+
+                <?php if (!empty($schedules)): ?>
+                    <div class="table-responsive">
+                        <table class="table table-bordered align-middle" id="schedulesTable">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>#</th>
+                                    <th>Course</th>
+                                    <th>Instructor</th>
+                                    <th>Class Type</th>
+                                    <th>Day</th>
+                                    <th>Start Time</th>
+                                    <th>End Time</th>
+                                    <th>Room/Location</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="schedulesTableBody">
+                                <?php foreach ($schedules as $index => $schedule): ?>
+                                    <tr>
+                                        <td><?= $index + 1 ?></td>
+                                        <td>
+                                            <strong><?= esc($schedule['course_title']) ?></strong>
+                                            <?php if (!empty($schedule['course_number'])): ?>
+                                                <br><small class="text-muted"><?= esc($schedule['course_number']) ?></small>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td><?= esc($schedule['instructor_name'] ?? 'N/A') ?></td>
+                                        <td>
+                                            <?php if ($schedule['class_type'] === 'online'): ?>
+                                                <span class="badge bg-info">Online</span>
+                                            <?php else: ?>
+                                                <span class="badge bg-primary">Face-to-Face</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td><?= esc($schedule['day_of_week']) ?></td>
+                                        <td>
+                                            <strong><?= date('h:i A', strtotime($schedule['start_time'])) ?></strong>
+                                        </td>
+                                        <td>
+                                            <strong><?= date('h:i A', strtotime($schedule['end_time'])) ?></strong>
+                                        </td>
+                                        <td><?= esc($schedule['room'] ?? 'N/A') ?></td>
+                                        <td>
+                                            <a href="<?= site_url('admin/schedules') ?>" class="btn btn-sm btn-info">Manage</a>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="noSchedulesSearchResults" style="display: none;">
+                        <p class="text-muted mb-0">No schedules found matching your search.</p>
+                    </div>
+                <?php else: ?>
+                    <p class="text-muted mb-0">No schedules found. <a href="<?= site_url('admin/schedules') ?>">Create a schedule</a></p>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <!-- Users Overview -->
+        <div class="card mt-4">
+            <div class="card-header fw-bold d-flex justify-content-between align-items-center">
+                <span>Users Overview</span>
+                <a href="<?= site_url('admin/users') ?>" class="btn btn-sm btn-primary">Manage Users</a>
+            </div>
+            <div class="card-body">
+                <!-- ✅ Search Form for Users -->
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <form id="searchUsersForm" method="GET" action="javascript:void(0);">
+                            <div class="row">
+                                <div class="col-md-10">
+                                    <div class="input-group">
+                                        <span class="input-group-text">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-search" viewBox="0 0 16 16">
+                                                <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+                                            </svg>
+                                        </span>
+                                        <input 
+                                            type="text" 
+                                            class="form-control" 
+                                            id="searchUsersInput" 
+                                            name="q" 
+                                            placeholder="Search users by name, email, or role..." 
+                                            value=""
+                                            autocomplete="off">
+                                    </div>
+                                </div>
+                                <div class="col-md-2">
+                                    <button type="submit" class="btn btn-primary w-100" id="searchUsersBtn">
+                                        Search
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- ✅ Search Results Info for Users -->
+                <div id="searchUsersInfo" class="mb-3" style="display: none;">
+                    <p class="text-muted">
+                        <span id="usersResultCount">0</span> result(s) found
+                    </p>
+                </div>
+
+                <?php if (!empty($users)): ?>
+                    <div class="table-responsive">
+                        <table class="table table-bordered align-middle" id="usersTable">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>#</th>
+                                    <th>Name</th>
+                                    <th>Email</th>
+                                    <th>Role</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="usersTableBody">
+                                <?php foreach ($users as $index => $user): ?>
+                                    <tr>
+                                        <td><?= $index + 1 ?></td>
+                                        <td><?= esc($user['name'] ?? 'N/A') ?></td>
+                                        <td><?= esc($user['email'] ?? 'N/A') ?></td>
+                                        <td>
+                                            <?php 
+                                            $role = strtolower($user['role'] ?? '');
+                                            $badgeClass = $role === 'admin' ? 'bg-danger' : ($role === 'teacher' ? 'bg-primary' : 'bg-success');
+                                            ?>
+                                            <span class="badge <?= $badgeClass ?>"><?= ucfirst(esc($role)) ?></span>
+                                        </td>
+                                        <td>
+                                            <?php 
+                                            $status = strtolower($user['status'] ?? 'active');
+                                            $statusBadgeClass = $status === 'active' ? 'bg-success' : ($status === 'inactive' ? 'bg-warning' : 'bg-secondary');
+                                            ?>
+                                            <span class="badge <?= $statusBadgeClass ?>"><?= ucfirst(esc($status)) ?></span>
+                                        </td>
+                                        <td>
+                                            <a href="<?= site_url('admin/users') ?>" class="btn btn-sm btn-info">Manage</a>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="noUsersSearchResults" style="display: none;">
+                        <p class="text-muted mb-0">No users found matching your search.</p>
+                    </div>
+                <?php else: ?>
+                    <p class="text-muted mb-0">No users found. <a href="<?= site_url('admin/users') ?>">Create a user</a></p>
+                <?php endif; ?>
+            </div>
+        </div>
+
     <?php elseif ($user_role === 'teacher'): ?>
         <!-- TEACHER SECTION -->
         <div class="card mt-4">
@@ -457,6 +658,260 @@ $(document).ready(function() {
             $('#noSearchResults').hide();
         } else {
             performServerSearch(searchTerm);
+        }
+    });
+
+    // ✅ SCHEDULES SEARCH FUNCTIONALITY
+    let schedulesSearchTimeout;
+    let isSearchingSchedules = false;
+    const originalSchedulesHtml = $('#schedulesTableBody').html(); // Store original schedules
+    
+    function performSchedulesSearch(searchTerm) {
+        if (isSearchingSchedules) return; // Prevent multiple simultaneous searches
+        
+        isSearchingSchedules = true;
+        const $searchBtn = $('#searchSchedulesBtn');
+        const originalBtnText = $searchBtn.html();
+        
+        // Show loading indicator
+        $searchBtn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Searching...');
+
+        $.ajax({
+            url: "<?= base_url('admin/search/schedules') ?>",
+            type: "GET",
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            data: {
+                q: searchTerm
+            },
+            dataType: 'json',
+            success: function(response) {
+                isSearchingSchedules = false;
+                $searchBtn.prop('disabled', false).html(originalBtnText);
+
+                if (response.status === 'success') {
+                    // Update search info
+                    $('#schedulesResultCount').text(response.count);
+                    $('#searchSchedulesInfo').show();
+
+                    // Clear existing schedules
+                    $('#schedulesTableBody').empty();
+                    $('#noSchedulesSearchResults').hide();
+
+                    if (response.results.length > 0) {
+                        // Build table rows from search results
+                        response.results.forEach(function(schedule, index) {
+                            const classTypeBadge = schedule.class_type === 'online' 
+                                ? '<span class="badge bg-info">Online</span>'
+                                : '<span class="badge bg-primary">Face-to-Face</span>';
+                            
+                            const courseNumberHtml = schedule.course_number 
+                                ? '<br><small class="text-muted">' + schedule.course_number + '</small>'
+                                : '';
+                            
+                            // Format time (handle HH:MM:SS or HH:MM format)
+                            function formatTime(timeStr) {
+                                if (!timeStr) return 'N/A';
+                                try {
+                                    const time = timeStr.split(':');
+                                    const hours = parseInt(time[0]);
+                                    const minutes = time[1] || '00';
+                                    const ampm = hours >= 12 ? 'PM' : 'AM';
+                                    const displayHours = hours % 12 || 12;
+                                    return (displayHours < 10 ? '0' : '') + displayHours + ':' + minutes + ' ' + ampm;
+                                } catch (e) {
+                                    return timeStr;
+                                }
+                            }
+                            const startTime = formatTime(schedule.start_time);
+                            const endTime = formatTime(schedule.end_time);
+                            
+                            const row = '<tr>' +
+                                '<td>' + (index + 1) + '</td>' +
+                                '<td><strong>' + schedule.course_title + '</strong>' + courseNumberHtml + '</td>' +
+                                '<td>' + (schedule.instructor_name || 'N/A') + '</td>' +
+                                '<td>' + classTypeBadge + '</td>' +
+                                '<td>' + schedule.day_of_week + '</td>' +
+                                '<td><strong>' + startTime + '</strong></td>' +
+                                '<td><strong>' + endTime + '</strong></td>' +
+                                '<td>' + (schedule.room || 'N/A') + '</td>' +
+                                '<td><a href="<?= site_url("admin/schedules") ?>" class="btn btn-sm btn-info">Manage</a></td>' +
+                            '</tr>';
+                            $('#schedulesTableBody').append(row);
+                        });
+                    } else {
+                        $('#noSchedulesSearchResults').show();
+                    }
+                } else {
+                    $('#searchSchedulesInfo').hide();
+                    alert('Search failed: ' + (response.message || 'Unknown error'));
+                }
+            },
+            error: function(xhr, status, error) {
+                isSearchingSchedules = false;
+                $searchBtn.prop('disabled', false).html(originalBtnText);
+                $('#searchSchedulesInfo').hide();
+                console.error('Search error:', error);
+                alert('An error occurred during search. Please try again.');
+            }
+        });
+    }
+
+    // Automatic search as user types (with debouncing) for schedules
+    $('#searchSchedulesInput').on('input', function() {
+        const searchTerm = $(this).val().trim();
+        
+        // Clear previous timeout
+        clearTimeout(schedulesSearchTimeout);
+        
+        if (searchTerm === '') {
+            // If search is empty, restore original schedules
+            clearTimeout(schedulesSearchTimeout);
+            schedulesSearchTimeout = setTimeout(function() {
+                $('#schedulesTableBody').html(originalSchedulesHtml);
+                $('#searchSchedulesInfo').hide();
+                $('#noSchedulesSearchResults').hide();
+            }, 300);
+        } else {
+            // Debounce: wait 500ms after user stops typing before searching
+            schedulesSearchTimeout = setTimeout(function() {
+                performSchedulesSearch(searchTerm);
+            }, 500);
+        }
+    });
+
+    // Submit form for schedules search
+    $('#searchSchedulesForm').on('submit', function(e) {
+        e.preventDefault();
+        
+        // Clear any pending timeout
+        clearTimeout(schedulesSearchTimeout);
+        
+        // Perform search immediately when form is submitted
+        const searchTerm = $('#searchSchedulesInput').val().trim();
+        if (searchTerm === '') {
+            $('#schedulesTableBody').html(originalSchedulesHtml);
+            $('#searchSchedulesInfo').hide();
+            $('#noSchedulesSearchResults').hide();
+        } else {
+            performSchedulesSearch(searchTerm);
+        }
+    });
+
+    // ✅ USERS SEARCH FUNCTIONALITY
+    let usersSearchTimeout;
+    let isSearchingUsers = false;
+    const originalUsersHtml = $('#usersTableBody').html(); // Store original users
+    
+    function performUsersSearch(searchTerm) {
+        if (isSearchingUsers) return; // Prevent multiple simultaneous searches
+        
+        isSearchingUsers = true;
+        const $searchBtn = $('#searchUsersBtn');
+        const originalBtnText = $searchBtn.html();
+        
+        // Show loading indicator
+        $searchBtn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Searching...');
+
+        $.ajax({
+            url: "<?= base_url('admin/search/users') ?>",
+            type: "GET",
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            data: {
+                q: searchTerm
+            },
+            dataType: 'json',
+            success: function(response) {
+                isSearchingUsers = false;
+                $searchBtn.prop('disabled', false).html(originalBtnText);
+
+                if (response.status === 'success') {
+                    // Update search info
+                    $('#usersResultCount').text(response.count);
+                    $('#searchUsersInfo').show();
+
+                    // Clear existing users
+                    $('#usersTableBody').empty();
+                    $('#noUsersSearchResults').hide();
+
+                    if (response.results.length > 0) {
+                        // Build table rows from search results
+                        response.results.forEach(function(user, index) {
+                            const role = (user.role || '').toLowerCase();
+                            const badgeClass = role === 'admin' ? 'bg-danger' : (role === 'teacher' ? 'bg-primary' : 'bg-success');
+                            
+                            const status = (user.status || 'active').toLowerCase();
+                            const statusBadgeClass = status === 'active' ? 'bg-success' : (status === 'inactive' ? 'bg-warning' : 'bg-secondary');
+                            
+                            const row = '<tr>' +
+                                '<td>' + (index + 1) + '</td>' +
+                                '<td>' + (user.name || 'N/A') + '</td>' +
+                                '<td>' + (user.email || 'N/A') + '</td>' +
+                                '<td><span class="badge ' + badgeClass + '">' + (role.charAt(0).toUpperCase() + role.slice(1)) + '</span></td>' +
+                                '<td><span class="badge ' + statusBadgeClass + '">' + (status.charAt(0).toUpperCase() + status.slice(1)) + '</span></td>' +
+                                '<td><a href="<?= site_url("admin/users") ?>" class="btn btn-sm btn-info">Manage</a></td>' +
+                            '</tr>';
+                            $('#usersTableBody').append(row);
+                        });
+                    } else {
+                        $('#noUsersSearchResults').show();
+                    }
+                } else {
+                    $('#searchUsersInfo').hide();
+                    alert('Search failed: ' + (response.message || 'Unknown error'));
+                }
+            },
+            error: function(xhr, status, error) {
+                isSearchingUsers = false;
+                $searchBtn.prop('disabled', false).html(originalBtnText);
+                $('#searchUsersInfo').hide();
+                console.error('Search error:', error);
+                alert('An error occurred during search. Please try again.');
+            }
+        });
+    }
+
+    // Automatic search as user types (with debouncing) for users
+    $('#searchUsersInput').on('input', function() {
+        const searchTerm = $(this).val().trim();
+        
+        // Clear previous timeout
+        clearTimeout(usersSearchTimeout);
+        
+        if (searchTerm === '') {
+            // If search is empty, restore original users
+            clearTimeout(usersSearchTimeout);
+            usersSearchTimeout = setTimeout(function() {
+                $('#usersTableBody').html(originalUsersHtml);
+                $('#searchUsersInfo').hide();
+                $('#noUsersSearchResults').hide();
+            }, 300);
+        } else {
+            // Debounce: wait 500ms after user stops typing before searching
+            usersSearchTimeout = setTimeout(function() {
+                performUsersSearch(searchTerm);
+            }, 500);
+        }
+    });
+
+    // Submit form for users search
+    $('#searchUsersForm').on('submit', function(e) {
+        e.preventDefault();
+        
+        // Clear any pending timeout
+        clearTimeout(usersSearchTimeout);
+        
+        // Perform search immediately when form is submitted
+        const searchTerm = $('#searchUsersInput').val().trim();
+        if (searchTerm === '') {
+            $('#usersTableBody').html(originalUsersHtml);
+            $('#searchUsersInfo').hide();
+            $('#noUsersSearchResults').hide();
+        } else {
+            performUsersSearch(searchTerm);
         }
     });
     <?php endif; ?>

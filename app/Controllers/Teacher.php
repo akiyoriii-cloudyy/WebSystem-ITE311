@@ -543,10 +543,6 @@ class Teacher extends BaseController
             // ✅ Validate department/program match for students
             $userModel = new UserModel();
             $student = $userModel->find($studentId);
-            $db = \Config\Database::connect();
-            
-            $courseResult = $db->table('courses')->where('id', $courseId)->get();
-            $course = ($courseResult !== false && is_object($courseResult)) ? $courseResult->getRowArray() : null;
             
             if (!$student) {
                 return $this->response->setJSON([
@@ -555,12 +551,7 @@ class Teacher extends BaseController
                 ]);
             }
             
-            if (!$course) {
-                return $this->response->setJSON([
-                    'status' => 'error',
-                    'message' => 'Course not found'
-                ]);
-            }
+            // Course is already validated above, no need to fetch again
             
             if (strtolower($student['role']) === 'student') {
                 $userDeptId = $student['department_id'] ?? null;
@@ -572,33 +563,33 @@ class Teacher extends BaseController
                 if ($courseDeptId || $courseProgId) {
                     $errors = [];
                     
-                    // Check department match
-                    if ($courseDeptId && $userDeptId != $courseDeptId) {
-                        $deptModel = new \App\Models\DepartmentModel();
-                        $userDept = $deptModel->find($userDeptId);
-                        $courseDept = $deptModel->find($courseDeptId);
-                        $userDeptName = $userDept ? $userDept['department_name'] : 'Unknown';
-                        $courseDeptName = $courseDept ? $courseDept['department_name'] : 'Unknown';
-                        $errors[] = "Student belongs to '{$userDeptName}' but course belongs to '{$courseDeptName}'.";
-                    }
-                    
-                    // Check program match (if both course and student have programs)
-                    if ($courseProgId && $userProgId && $userProgId != $courseProgId) {
-                        $progModel = new \App\Models\ProgramModel();
-                        $userProg = $progModel->find($userProgId);
-                        $courseProg = $progModel->find($courseProgId);
-                        $userProgName = $userProg ? $userProg['program_name'] : 'Unknown';
-                        $courseProgName = $courseProg ? $courseProg['program_name'] : 'Unknown';
-                        $errors[] = "Student is in '{$userProgName}' program but course is for '{$courseProgName}' program.";
-                    }
-                    
-                    // If student doesn't have department/program set, but course requires it
+                    // First, check if student is missing required department/program
                     if ($courseDeptId && !$userDeptId) {
                         $errors[] = "Student must have a department assigned. Please update student's department first.";
                     }
                     
                     if ($courseProgId && !$userProgId) {
                         $errors[] = "Student must have a program assigned. Please update student's program first.";
+                    }
+                    
+                    // Only check for mismatches if student has department/program assigned
+                    if ($courseDeptId && $userDeptId && $userDeptId != $courseDeptId) {
+                        $deptModel = new \App\Models\DepartmentModel();
+                        $userDept = $deptModel->find($userDeptId);
+                        $courseDept = $deptModel->find($courseDeptId);
+                        $userDeptName = (!empty($userDept) && isset($userDept['department_name'])) ? $userDept['department_name'] : 'Unknown';
+                        $courseDeptName = (!empty($courseDept) && isset($courseDept['department_name'])) ? $courseDept['department_name'] : 'Unknown';
+                        $errors[] = "Student belongs to '{$userDeptName}' but course belongs to '{$courseDeptName}'.";
+                    }
+                    
+                    // Check program match (only if both course and student have programs)
+                    if ($courseProgId && $userProgId && $userProgId != $courseProgId) {
+                        $progModel = new \App\Models\ProgramModel();
+                        $userProg = $progModel->find($userProgId);
+                        $courseProg = $progModel->find($courseProgId);
+                        $userProgName = (!empty($userProg) && isset($userProg['program_name'])) ? $userProg['program_name'] : 'Unknown';
+                        $courseProgName = (!empty($courseProg) && isset($courseProg['program_name'])) ? $courseProg['program_name'] : 'Unknown';
+                        $errors[] = "Student is in '{$userProgName}' program but course is for '{$courseProgName}' program.";
                     }
                     
                     if (!empty($errors)) {
@@ -612,13 +603,20 @@ class Teacher extends BaseController
 
             // Enroll student
             try {
-                $enrollmentModel->enrollUser([
+                $enrollmentId = $enrollmentModel->enrollUser([
                     'user_id' => $studentId,
                     'course_id' => $courseId,
                     'enrolled_at' => date('Y-m-d H:i:s'),
                     'enrollment_date' => date('Y-m-d H:i:s'),
                     'completion_status' => 'ENROLLED',
                 ]);
+
+                if (!$enrollmentId) {
+                    return $this->response->setJSON([
+                        'status' => 'error',
+                        'message' => 'Failed to enroll student. Please try again.'
+                    ]);
+                }
 
                 // Get student and course info for notifications
                 $studentName = $student ? $student['name'] : 'Student';
@@ -1158,5 +1156,461 @@ class Teacher extends BaseController
         ];
 
         return view('assignments/student_index', $data);
+    }
+
+    // ✅ My Students Page (All students across all teacher's courses)
+    public function students()
+    {
+        $session = session();
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'teacher') {
+            return redirect()->to('/teacher_dashboard')->with('error', 'Access Denied.');
+        }
+
+        $db = \Config\Database::connect();
+        $userId = $session->get('user_id');
+
+        // Get all students enrolled in teacher's courses
+        $students = [];
+        if ($db->query("SHOW TABLES LIKE 'enrollments'")->getNumRows() > 0 && 
+            $db->query("SHOW TABLES LIKE 'courses'")->getNumRows() > 0) {
+            try {
+                $result = $db->table('enrollments')
+                    ->select('enrollments.*, users.name as student_name, users.email, users.student_id, courses.title as course_title, courses.id as course_id')
+                    ->join('users', 'users.id = enrollments.user_id', 'left')
+                    ->join('courses', 'courses.id = enrollments.course_id', 'left')
+                    ->where('courses.instructor_id', $userId)
+                    ->where('users.role', 'student')
+                    ->orderBy('courses.title', 'ASC')
+                    ->orderBy('users.name', 'ASC')
+                    ->get();
+
+                if ($result !== false && is_object($result)) {
+                    $students = $result->getResultArray();
+                }
+            } catch (\Exception $e) {
+                log_message('error', 'Failed to fetch students: ' . $e->getMessage());
+            }
+        }
+
+        $data = [
+            'title' => 'My Students',
+            'students' => $students,
+            'user_name' => $session->get('user_name'),
+            'user_role' => $session->get('user_role'),
+        ];
+
+        return view('teacher/students', $data);
+    }
+
+    // ✅ All Assignments Page (All assignments across all teacher's courses)
+    public function allAssignments()
+    {
+        $session = session();
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'teacher') {
+            return redirect()->to('/teacher_dashboard')->with('error', 'Access Denied.');
+        }
+
+        $db = \Config\Database::connect();
+        $userId = $session->get('user_id');
+        $assignmentModel = new AssignmentModel();
+
+        // Get all assignments for teacher's courses
+        $assignments = [];
+        if ($db->query("SHOW TABLES LIKE 'assignments'")->getNumRows() > 0 &&
+            $db->query("SHOW TABLES LIKE 'courses'")->getNumRows() > 0) {
+            try {
+                $result = $db->table('assignments')
+                    ->select('assignments.*, courses.title as course_title, courses.id as course_id')
+                    ->join('courses', 'courses.id = assignments.course_id', 'left')
+                    ->where('courses.instructor_id', $userId)
+                    ->orderBy('courses.title', 'ASC')
+                    ->orderBy('assignments.due_date', 'ASC')
+                    ->get();
+
+                if ($result !== false && is_object($result)) {
+                    $assignments = $result->getResultArray();
+                }
+            } catch (\Exception $e) {
+                log_message('error', 'Failed to fetch assignments: ' . $e->getMessage());
+            }
+        }
+
+        $data = [
+            'title' => 'All Assignments',
+            'assignments' => $assignments,
+            'user_name' => $session->get('user_name'),
+            'user_role' => $session->get('user_role'),
+        ];
+
+        return view('teacher/all_assignments', $data);
+    }
+
+    // ✅ Search My Courses (AJAX)
+    public function searchMyCourses()
+    {
+        $session = session();
+        $isAJAX = $this->request->isAJAX() || $this->request->hasHeader('X-Requested-With');
+
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'teacher') {
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Please login first.'
+                ])->setStatusCode(401);
+            }
+            return redirect()->to('/login')->with('error', 'Please login first.');
+        }
+
+        try {
+            $db = \Config\Database::connect();
+            $userId = $session->get('user_id');
+            $searchTerm = $this->request->getGet('q') ?? '';
+
+            if (empty($searchTerm)) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Search term is required'
+                ]);
+            }
+
+            // Check which fields exist in courses table
+            $hasCourseNumber = false;
+            $hasCode = false;
+            try {
+                $hasCourseNumber = $db->query("SHOW COLUMNS FROM courses WHERE Field = 'course_number'")->getNumRows() > 0;
+                $hasCode = $db->query("SHOW COLUMNS FROM courses WHERE Field = 'code'")->getNumRows() > 0;
+            } catch (\Exception $e) {
+                // Ignore errors, use defaults
+            }
+
+            // Build query EXACTLY like main courses() method - same structure
+            $query = $db->table('courses')
+                ->where('courses.instructor_id', $userId)
+                ->groupStart()
+                ->like('courses.title', $searchTerm)
+                ->orLike('courses.description', $searchTerm);
+            
+            // Add course_number search if field exists
+            if ($hasCourseNumber) {
+                $query->orLike('courses.course_number', $searchTerm);
+            }
+            
+            // Add code search if field exists
+            if ($hasCode) {
+                $query->orLike('courses.code', $searchTerm);
+            }
+            
+            $query->groupEnd()
+                ->orderBy('courses.created_at', 'DESC');
+
+            $result = $query->get();
+
+            if ($result !== false && is_object($result)) {
+                $courses = $result->getResultArray();
+            } else {
+                $courses = [];
+            }
+
+            // Add student count to each course
+            foreach ($courses as &$course) {
+                if ($db->query("SHOW TABLES LIKE 'enrollments'")->getNumRows() > 0) {
+                    $course['student_count'] = $db->table('enrollments')
+                        ->where('course_id', $course['id'])
+                        ->countAllResults();
+                } else {
+                    $course['student_count'] = 0;
+                }
+            }
+
+            $results = [];
+            foreach ($courses as $course) {
+                $results[] = [
+                    'id' => $course['id'],
+                    'title' => $course['title'] ?? $course['name'] ?? 'Course #' . $course['id'],
+                    'name' => $course['name'] ?? '',
+                    'student_count' => $course['student_count'] ?? 0
+                ];
+            }
+
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'success',
+                    'results' => $results,
+                    'count' => count($results),
+                    'search_term' => $searchTerm
+                ]);
+            }
+        } catch (\Exception $e) {
+            log_message('error', 'Teacher my courses search error: ' . $e->getMessage());
+            log_message('error', 'Teacher my courses search file: ' . $e->getFile() . ' line: ' . $e->getLine());
+            
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Search failed: ' . $e->getMessage()
+                ])->setStatusCode(500);
+            }
+            throw $e;
+        }
+    }
+
+    // ✅ Search My Students (AJAX)
+    public function searchMyStudents()
+    {
+        $session = session();
+        $isAJAX = $this->request->isAJAX() || $this->request->hasHeader('X-Requested-With');
+
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'teacher') {
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Please login first.'
+                ])->setStatusCode(401);
+            }
+            return redirect()->to('/login')->with('error', 'Please login first.');
+        }
+
+        try {
+            $db = \Config\Database::connect();
+            $userId = $session->get('user_id');
+            $searchTerm = $this->request->getGet('q') ?? '';
+
+            if (empty($searchTerm)) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Search term is required'
+                ]);
+            }
+
+            $query = $db->table('enrollments')
+                ->select('enrollments.*, users.name as student_name, users.email, users.student_id, courses.title as course_title, courses.id as course_id')
+                ->join('users', 'users.id = enrollments.user_id', 'left')
+                ->join('courses', 'courses.id = enrollments.course_id', 'left')
+                ->where('courses.instructor_id', $userId)
+                ->where('users.role', 'student')
+                ->groupStart()
+                ->like('users.name', $searchTerm)
+                ->orLike('users.email', $searchTerm)
+                ->orLike('users.student_id', $searchTerm)
+                ->orLike('courses.title', $searchTerm)
+                ->groupEnd()
+                ->orderBy('courses.title', 'ASC')
+                ->orderBy('users.name', 'ASC');
+
+            $result = $query->get();
+
+            if ($result !== false && is_object($result)) {
+                $students = $result->getResultArray();
+            } else {
+                $students = [];
+            }
+
+            $results = [];
+            foreach ($students as $student) {
+                $results[] = [
+                    'id' => $student['id'],
+                    'student_name' => $student['student_name'] ?? 'N/A',
+                    'email' => $student['email'] ?? 'N/A',
+                    'student_id' => $student['student_id'] ?? '',
+                    'course_title' => $student['course_title'] ?? 'N/A',
+                    'course_id' => $student['course_id'] ?? null
+                ];
+            }
+
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'success',
+                    'results' => $results,
+                    'count' => count($results),
+                    'search_term' => $searchTerm
+                ]);
+            }
+        } catch (\Exception $e) {
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Search failed: ' . $e->getMessage()
+                ])->setStatusCode(500);
+            }
+            throw $e;
+        }
+    }
+
+    // ✅ Search All Assignments (AJAX)
+    public function searchAssignments()
+    {
+        $session = session();
+        $isAJAX = $this->request->isAJAX() || $this->request->hasHeader('X-Requested-With');
+
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'teacher') {
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Please login first.'
+                ])->setStatusCode(401);
+            }
+            return redirect()->to('/login')->with('error', 'Please login first.');
+        }
+
+        try {
+            $db = \Config\Database::connect();
+            $userId = $session->get('user_id');
+            $searchTerm = $this->request->getGet('q') ?? '';
+
+            if (empty($searchTerm)) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Search term is required'
+                ]);
+            }
+
+            $query = $db->table('assignments')
+                ->select('assignments.*, courses.title as course_title, courses.id as course_id')
+                ->join('courses', 'courses.id = assignments.course_id', 'left')
+                ->where('courses.instructor_id', $userId)
+                ->groupStart()
+                ->like('assignments.title', $searchTerm)
+                ->orLike('assignments.assignment_type', $searchTerm)
+                ->orLike('assignments.description', $searchTerm)
+                ->orLike('courses.title', $searchTerm)
+                ->groupEnd()
+                ->orderBy('courses.title', 'ASC')
+                ->orderBy('assignments.due_date', 'ASC');
+
+            $result = $query->get();
+
+            if ($result !== false && is_object($result)) {
+                $assignments = $result->getResultArray();
+            } else {
+                $assignments = [];
+            }
+
+            $results = [];
+            foreach ($assignments as $assignment) {
+                $results[] = [
+                    'id' => $assignment['id'],
+                    'course_id' => $assignment['course_id'] ?? null,
+                    'course_title' => $assignment['course_title'] ?? 'N/A',
+                    'assignment_type' => $assignment['assignment_type'] ?? '',
+                    'title' => $assignment['title'] ?? 'N/A',
+                    'max_score' => $assignment['max_score'] ?? 0,
+                    'due_date' => $assignment['due_date'] ?? null
+                ];
+            }
+
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'success',
+                    'results' => $results,
+                    'count' => count($results),
+                    'search_term' => $searchTerm
+                ]);
+            }
+        } catch (\Exception $e) {
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Search failed: ' . $e->getMessage()
+                ])->setStatusCode(500);
+            }
+            throw $e;
+        }
+    }
+
+    // ✅ Search Course Assignments (AJAX)
+    public function searchCourseAssignments()
+    {
+        $session = session();
+        $isAJAX = $this->request->isAJAX() || $this->request->hasHeader('X-Requested-With');
+
+        if (!$session->get('logged_in') || strtolower($session->get('user_role')) !== 'teacher') {
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Please login first.'
+                ])->setStatusCode(401);
+            }
+            return redirect()->to('/login')->with('error', 'Please login first.');
+        }
+
+        try {
+            $db = \Config\Database::connect();
+            $userId = $session->get('user_id');
+            $courseId = $this->request->getGet('course_id') ?? 0;
+            $searchTerm = $this->request->getGet('q') ?? '';
+
+            if (empty($searchTerm)) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Search term is required'
+                ]);
+            }
+
+            if (empty($courseId)) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Course ID is required'
+                ]);
+            }
+
+            // Verify course ownership
+            $course = $db->table('courses')
+                ->where('id', $courseId)
+                ->where('instructor_id', $userId)
+                ->get()
+                ->getRowArray();
+
+            if (!$course) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Course not found or access denied'
+                ]);
+            }
+
+            $query = $db->table('assignments')
+                ->where('course_id', $courseId)
+                ->groupStart()
+                ->like('title', $searchTerm)
+                ->orLike('assignment_type', $searchTerm)
+                ->orLike('description', $searchTerm)
+                ->groupEnd()
+                ->orderBy('due_date', 'ASC');
+
+            $result = $query->get();
+
+            if ($result !== false && is_object($result)) {
+                $assignments = $result->getResultArray();
+            } else {
+                $assignments = [];
+            }
+
+            $results = [];
+            foreach ($assignments as $assignment) {
+                $results[] = [
+                    'id' => $assignment['id'],
+                    'assignment_type' => $assignment['assignment_type'] ?? '',
+                    'title' => $assignment['title'] ?? 'N/A',
+                    'max_score' => $assignment['max_score'] ?? 0,
+                    'due_date' => $assignment['due_date'] ?? null
+                ];
+            }
+
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'success',
+                    'results' => $results,
+                    'count' => count($results),
+                    'search_term' => $searchTerm
+                ]);
+            }
+        } catch (\Exception $e) {
+            if ($isAJAX) {
+                return $this->response->setJSON([
+                    'status' => 'error',
+                    'message' => 'Search failed: ' . $e->getMessage()
+                ])->setStatusCode(500);
+            }
+            throw $e;
+        }
     }
 }

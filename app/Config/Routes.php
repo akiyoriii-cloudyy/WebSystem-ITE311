@@ -60,6 +60,7 @@ $routes->group('', ['filter' => 'roleauth'], function ($routes) {
         $routes->get('users/delete/(:num)', 'Admin::deleteUser/$1');
         $routes->get('users/restore/(:num)', 'Admin::restoreUser/$1');
         $routes->post('users/create', 'Admin::createUser');
+        $routes->post('users/bulk-update-students', 'Admin::bulkUpdateStudents');
         $routes->get('users/get-token', 'Admin::getToken');
         $routes->get('user-management', 'Admin::userManagement');
         
@@ -105,6 +106,15 @@ $routes->group('', ['filter' => 'roleauth'], function ($routes) {
         $routes->post('schedules/create', 'Admin::createSchedule');
         $routes->post('schedules/update/(:num)', 'Admin::updateSchedule/$1');
         $routes->post('schedules/delete/(:num)', 'Admin::deleteSchedule/$1');
+        
+        // Search Endpoints (Admin)
+        $routes->get('search/schedules', 'Admin::searchSchedules');
+        $routes->get('search/users', 'Admin::searchUsers');
+        $routes->get('search/manage-users', 'Admin::searchManageUsers');
+        $routes->get('search/departments', 'Admin::searchDepartments');
+        $routes->get('search/programs', 'Admin::searchPrograms');
+        $routes->get('search/enrollments', 'Admin::searchEnrollments');
+        $routes->get('search/courses', 'Admin::searchCourses');
     });
 
     // --------------------
@@ -141,6 +151,16 @@ $routes->group('', ['filter' => 'roleauth'], function ($routes) {
         $routes->match(['get', 'post'], 'assignments/(:num)/grade', 'Teacher::gradeAssignment/$1');
         $routes->get('assignments/(:num)/delete', 'Teacher::deleteAssignment/$1');
         
+        // My Students & All Assignments
+        $routes->get('students', 'Teacher::students');
+        $routes->get('assignments', 'Teacher::allAssignments');
+        
+        // Search Endpoints (Teacher)
+        $routes->get('search/my-courses', 'Teacher::searchMyCourses');
+        $routes->get('search/my-students', 'Teacher::searchMyStudents');
+        $routes->get('search/assignments', 'Teacher::searchAssignments');
+        $routes->get('search/course-assignments', 'Teacher::searchCourseAssignments');
+        
     });
 
     // --------------------
@@ -162,6 +182,10 @@ $routes->group('', ['filter' => 'roleauth'], function ($routes) {
         
         // Assignment Management (Student)
         $routes->get('assignments/course/(:num)', 'Teacher::studentAssignments/$1');
+        
+        // Search Endpoints (Student)
+        $routes->get('search/enrolled-courses', 'Auth::searchEnrolledCourses');
+        $routes->get('search/schedules', 'Auth::searchStudentSchedules');
     });
 
     // --------------------

@@ -107,8 +107,47 @@
             <h5 class="mb-0">All Enrollments</h5>
         </div>
         <div class="card-body">
+            <!-- ✅ Search Form for Enrollments -->
+            <div class="card mb-3">
+                <div class="card-body">
+                    <form id="searchEnrollmentsForm" method="GET" action="javascript:void(0);">
+                        <div class="row">
+                            <div class="col-md-10">
+                                <div class="input-group">
+                                    <span class="input-group-text">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-search" viewBox="0 0 16 16">
+                                            <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+                                        </svg>
+                                    </span>
+                                    <input 
+                                        type="text" 
+                                        class="form-control" 
+                                        id="searchEnrollmentsInput" 
+                                        name="q" 
+                                        placeholder="Search enrollments by user name, email, course, or status..." 
+                                        value=""
+                                        autocomplete="off">
+                                </div>
+                            </div>
+                            <div class="col-md-2">
+                                <button type="submit" class="btn btn-primary w-100" id="searchEnrollmentsBtn">
+                                    Search
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- ✅ Search Results Info -->
+            <div id="searchEnrollmentsInfo" class="mb-3" style="display: none;">
+                <p class="text-muted">
+                    <span id="enrollmentsResultCount">0</span> result(s) found
+                </p>
+            </div>
+
             <div class="table-responsive">
-                <table class="table table-bordered table-hover">
+                <table class="table table-bordered table-hover" id="enrollmentsTable">
                     <thead class="table-light">
                         <tr>
                             <th>User</th>
@@ -122,7 +161,7 @@
                             <th>Actions</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody id="enrollmentsTableBody">
                         <?php if (!empty($enrollments)): ?>
                             <?php foreach ($enrollments as $enrollment): ?>
                                 <tr>
@@ -193,6 +232,9 @@
                         <?php endif; ?>
                     </tbody>
                 </table>
+            </div>
+            <div id="noEnrollmentsSearchResults" style="display: none;">
+                <p class="text-muted mb-0 text-center">No enrollments found matching your search.</p>
             </div>
         </div>
     </div>
@@ -426,6 +468,136 @@ $(document).ready(function() {
                 $('html, body').animate({ scrollTop: 0 }, 300);
             }
         });
+    });
+
+    // ✅ ENROLLMENTS SEARCH FUNCTIONALITY - Copied EXACT pattern from working manage users search
+    let enrollmentsSearchTimeout;
+    let isSearchingEnrollments = false;
+    const originalEnrollmentsHtml = $('#enrollmentsTableBody').html(); // Store original enrollments
+    
+    function performEnrollmentsSearch(searchTerm) {
+        if (isSearchingEnrollments) return; // Prevent multiple simultaneous searches
+        
+        isSearchingEnrollments = true;
+        const $searchBtn = $('#searchEnrollmentsBtn');
+        const originalBtnText = $searchBtn.html();
+        
+        // Show loading indicator
+        $searchBtn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Searching...');
+
+        $.ajax({
+            url: "<?= base_url('admin/search/enrollments') ?>",
+            type: "GET",
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            data: {
+                q: searchTerm
+            },
+            dataType: 'json',
+            success: function(response) {
+                isSearchingEnrollments = false;
+                $searchBtn.prop('disabled', false).html(originalBtnText);
+
+                if (response.status === 'success') {
+                    // Update search info
+                    $('#enrollmentsResultCount').text(response.count);
+                    $('#searchEnrollmentsInfo').show();
+
+                    // Clear existing enrollments
+                    $('#enrollmentsTableBody').empty();
+                    $('#noEnrollmentsSearchResults').hide();
+
+                    if (response.results.length > 0) {
+                        response.results.forEach(function(enrollment, index) {
+                            const role = (enrollment.role || 'student').toLowerCase();
+                            const roleBadge = role === 'teacher' ? 'bg-warning' : (role === 'admin' ? 'bg-danger' : 'bg-info');
+                            
+                            const status = (enrollment.completion_status || 'ENROLLED').toUpperCase();
+                            let statusBadgeClass = 'bg-info';
+                            if (status === 'COMPLETED') statusBadgeClass = 'bg-success';
+                            else if (status === 'FAILED' || status === 'DROPPED') statusBadgeClass = 'bg-danger';
+                            else if (status === 'IN_PROGRESS') statusBadgeClass = 'bg-warning';
+                            
+                            const courseNumberHtml = enrollment.course_number && enrollment.course_number !== 'N/A'
+                                ? '<span class="badge bg-secondary">' + enrollment.course_number + '</span>'
+                                : '<span class="text-muted">N/A</span>';
+                            
+                            const enrolledDate = enrollment.enrolled_at || enrollment.enrollment_date;
+                            const enrolledDateHtml = enrolledDate 
+                                ? new Date(enrolledDate).toLocaleString('en-US', {year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'})
+                                : '<span class="text-muted">N/A</span>';
+                            
+                            const finalGradeHtml = enrollment.final_grade && enrollment.final_grade > 0
+                                ? '<strong class="' + (enrollment.final_grade >= 75 ? 'text-success' : 'text-danger') + '">' + 
+                                  parseFloat(enrollment.final_grade).toFixed(2) + '%</strong>'
+                                : '<span class="text-muted">N/A</span>';
+                            
+                            const row = '<tr>' +
+                                '<td>' + (enrollment.user_name || 'N/A') + '</td>' +
+                                '<td>' + (enrollment.email || 'N/A') + '</td>' +
+                                '<td><span class="badge ' + roleBadge + '">' + role.charAt(0).toUpperCase() + role.slice(1) + '</span></td>' +
+                                '<td>' + (enrollment.course_title || 'N/A') + '</td>' +
+                                '<td>' + courseNumberHtml + '</td>' +
+                                '<td><span class="badge ' + statusBadgeClass + '">' + status.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, l => l.toUpperCase()) + '</span></td>' +
+                                '<td>' + enrolledDateHtml + '</td>' +
+                                '<td>' + finalGradeHtml + '</td>' +
+                                '<td>' +
+                                '<button type="button" class="btn btn-sm btn-danger unenroll-btn" ' +
+                                'data-enrollment-id="' + enrollment.id + '" ' +
+                                'data-user-name="' + (enrollment.user_name || '') + '" ' +
+                                'data-course-title="' + (enrollment.course_title || '') + '">Unenroll</button>' +
+                                '</td>' +
+                            '</tr>';
+                            $('#enrollmentsTableBody').append(row);
+                        });
+                    } else {
+                        $('#noEnrollmentsSearchResults').show();
+                    }
+                } else {
+                    $('#searchEnrollmentsInfo').hide();
+                    alert('Search failed: ' + (response.message || 'Unknown error'));
+                }
+            },
+            error: function(xhr, status, error) {
+                isSearchingEnrollments = false;
+                $searchBtn.prop('disabled', false).html(originalBtnText);
+                $('#searchEnrollmentsInfo').hide();
+                console.error('Search error:', error);
+                alert('An error occurred during search. Please try again.');
+            }
+        });
+    }
+
+    $('#searchEnrollmentsInput').on('input', function() {
+        const searchTerm = $(this).val().trim();
+        clearTimeout(enrollmentsSearchTimeout);
+        
+        if (searchTerm === '') {
+            clearTimeout(enrollmentsSearchTimeout);
+            enrollmentsSearchTimeout = setTimeout(function() {
+                $('#enrollmentsTableBody').html(originalEnrollmentsHtml);
+                $('#searchEnrollmentsInfo').hide();
+                $('#noEnrollmentsSearchResults').hide();
+            }, 300);
+        } else {
+            enrollmentsSearchTimeout = setTimeout(function() {
+                performEnrollmentsSearch(searchTerm);
+            }, 500);
+        }
+    });
+
+    $('#searchEnrollmentsForm').on('submit', function(e) {
+        e.preventDefault();
+        clearTimeout(enrollmentsSearchTimeout);
+        const searchTerm = $('#searchEnrollmentsInput').val().trim();
+        if (searchTerm === '') {
+            $('#enrollmentsTableBody').html(originalEnrollmentsHtml);
+            $('#searchEnrollmentsInfo').hide();
+            $('#noEnrollmentsSearchResults').hide();
+        } else {
+            performEnrollmentsSearch(searchTerm);
+        }
     });
 });
 </script>

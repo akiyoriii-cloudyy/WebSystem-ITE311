@@ -11,24 +11,112 @@
         <div class="alert alert-danger text-center"><?= session()->getFlashdata('error') ?></div>
     <?php endif; ?>
 
+    <!-- Bulk Update Students -->
+    <div class="card mb-4">
+        <div class="card-header bg-warning text-dark fw-bold">
+            🔧 Bulk Update Students - Assign Default Department/Program
+        </div>
+        <div class="card-body">
+            <p class="text-muted">Update all students who don't have a department/program assigned with a default department and program.</p>
+            <form id="bulkUpdateForm" class="row g-3">
+                <?= csrf_field() ?>
+                <div class="col-md-4">
+                    <label for="bulk_department_id" class="form-label">Default Department <span class="text-danger">*</span></label>
+                    <select class="form-select" id="bulk_department_id" name="default_department_id" required>
+                        <option value="">-- Select Department --</option>
+                        <?php if (!empty($departments ?? [])): ?>
+                            <?php foreach ($departments ?? [] as $dept): ?>
+                                <option value="<?= esc($dept['id']) ?>">
+                                    <?= esc($dept['department_code']) ?> - <?= esc($dept['department_name']) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label for="bulk_program_id" class="form-label">Default Program <span class="text-danger">*</span></label>
+                    <select class="form-select" id="bulk_program_id" name="default_program_id" required>
+                        <option value="">-- Select Program --</option>
+                        <?php if (!empty($programs ?? [])): ?>
+                            <?php foreach ($programs ?? [] as $prog): ?>
+                                <option value="<?= esc($prog['id']) ?>" data-department-id="<?= esc($prog['department_id'] ?? '') ?>">
+                                    <?= esc($prog['program_code']) ?> - <?= esc($prog['program_name']) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">&nbsp;</label>
+                    <button type="submit" class="btn btn-warning w-100" id="bulkUpdateBtn">
+                        <i class="bi bi-arrow-repeat"></i> Update All Students
+                    </button>
+                </div>
+            </form>
+            <div id="bulkUpdateAlert" class="mt-3"></div>
+        </div>
+    </div>
+
     <div class="card">
         <div class="card-header fw-bold">All Users</div>
         <div class="card-body">
+            <!-- ✅ Search Form for Users -->
+            <div class="card mb-3">
+                <div class="card-body">
+                    <form id="searchUsersForm" method="GET" action="javascript:void(0);">
+                        <div class="row">
+                            <div class="col-md-10">
+                                <div class="input-group">
+                                    <span class="input-group-text">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-search" viewBox="0 0 16 16">
+                                            <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+                                        </svg>
+                                    </span>
+                                    <input 
+                                        type="text" 
+                                        class="form-control" 
+                                        id="searchUsersInput" 
+                                        name="q" 
+                                        placeholder="Search users by name, email, role, department, program, or student ID..." 
+                                        value=""
+                                        autocomplete="off">
+                                </div>
+                            </div>
+                            <div class="col-md-2">
+                                <button type="submit" class="btn btn-primary w-100" id="searchUsersBtn">
+                                    Search
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- ✅ Search Results Info -->
+            <div id="searchUsersInfo" class="mb-3" style="display: none;">
+                <p class="text-muted">
+                    <span id="usersResultCount">0</span> result(s) found
+                </p>
+            </div>
+
             <?php if (!empty($users)): ?>
                 <div class="table-responsive">
-                    <table class="table table-bordered align-middle">
+                    <table class="table table-bordered align-middle" id="usersTable">
                         <thead class="table-light">
                             <tr>
                                 <th>#</th>
                                 <th>Name</th>
                                 <th>Email</th>
                                 <th>Current Role</th>
+                                <th>Department</th>
+                                <th>Program</th>
+                                <th>Student ID</th>
                                 <th>Status</th>
                                 <th>Change Role</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody id="usersTableBody">
                             <?php foreach ($users as $index => $u): ?>
                                 <tr>
                                     <td><?= $index + 1 ?></td>
@@ -38,6 +126,31 @@
                                         <strong><?= ucfirst(esc($u['role'])) ?></strong>
                                         <?php if (strtolower($u['role']) === 'admin'): ?>
                                             <span class="badge bg-danger ms-2">Protected</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?php if (!empty($u['department_name'])): ?>
+                                            <span class="badge bg-info">
+                                                <?= esc($u['department_code'] ?? '') ?> - <?= esc($u['department_name']) ?>
+                                            </span>
+                                        <?php else: ?>
+                                            <span class="text-muted">-</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?php if (!empty($u['program_name'])): ?>
+                                            <span class="badge bg-primary">
+                                                <?= esc($u['program_code'] ?? '') ?> - <?= esc($u['program_name']) ?>
+                                            </span>
+                                        <?php else: ?>
+                                            <span class="text-muted">-</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?php if (!empty($u['student_id'])): ?>
+                                            <span class="badge bg-secondary"><?= esc($u['student_id']) ?></span>
+                                        <?php else: ?>
+                                            <span class="text-muted">-</span>
                                         <?php endif; ?>
                                     </td>
                                     <td>
@@ -123,6 +236,9 @@
                         </tbody>
                     </table>
                 </div>
+                <div id="noUsersSearchResults" style="display: none;">
+                    <p class="text-muted mb-0">No users found matching your search.</p>
+                </div>
             <?php else: ?>
                 <p class="text-muted mb-0">No users found.</p>
             <?php endif; ?>
@@ -166,9 +282,9 @@
                     <!-- Department and Program (for students only) -->
                     <div id="editStudentFields" style="display: none;">
                         <div class="mb-3">
-                            <label for="edit_department_id" class="form-label">Department</label>
-                            <select class="form-select" id="edit_department_id" name="department_id">
-                                <option value="">-- Select Department (Optional) --</option>
+                            <label for="edit_department_id" class="form-label">Department <span class="text-danger">*</span></label>
+                            <select class="form-select" id="edit_department_id" name="department_id" required>
+                                <option value="">-- Select Department (Required) --</option>
                                 <?php if (!empty($departments ?? [])): ?>
                                     <?php foreach ($departments ?? [] as $dept): ?>
                                         <option value="<?= esc($dept['id']) ?>">
@@ -180,9 +296,9 @@
                         </div>
                         
                         <div class="mb-3">
-                            <label for="edit_program_id" class="form-label">Program</label>
-                            <select class="form-select" id="edit_program_id" name="program_id">
-                                <option value="">-- Select Program (Optional) --</option>
+                            <label for="edit_program_id" class="form-label">Program <span class="text-danger">*</span></label>
+                            <select class="form-select" id="edit_program_id" name="program_id" required>
+                                <option value="">-- Select Program (Required) --</option>
                                 <?php if (!empty($programs ?? [])): ?>
                                     <?php foreach ($programs ?? [] as $prog): ?>
                                         <option value="<?= esc($prog['id']) ?>" data-department-id="<?= esc($prog['department_id'] ?? '') ?>">
@@ -803,5 +919,257 @@
             }
         }, 50);
     }
+
+    // Bulk Update Students Form
+    $('#bulkUpdateForm').on('submit', function(e) {
+        e.preventDefault();
+        const $btn = $('#bulkUpdateBtn');
+        const originalText = $btn.html();
+        $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Updating...');
+        
+        // Get CSRF token from form
+        const csrfTokenName = '<?= csrf_token() ?>';
+        const csrfHash = $('input[name="' + csrfTokenName + '"]').val() || '<?= csrf_hash() ?>';
+        
+        // Prepare form data with CSRF token
+        const formData = $(this).serialize();
+        const formDataWithCsrf = formData + '&' + csrfTokenName + '=' + encodeURIComponent(csrfHash);
+        
+        $.ajax({
+            url: '<?= site_url('admin/users/bulk-update-students') ?>',
+            type: 'POST',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRF-TOKEN': csrfHash
+            },
+            data: formDataWithCsrf,
+            dataType: 'json',
+            success: function(response) {
+                $btn.prop('disabled', false).html(originalText);
+                
+                // Update CSRF token if provided
+                if (response.csrf_hash) {
+                    $('input[name="' + csrfTokenName + '"]').val(response.csrf_hash);
+                }
+                
+                let alertClass = response.status === 'success' ? 'alert-success' : 'alert-danger';
+                let alertHtml = '<div class="alert ' + alertClass + ' alert-dismissible fade show" role="alert">' +
+                    response.message +
+                    '<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>';
+                
+                $('#bulkUpdateAlert').html(alertHtml);
+                
+                if (response.status === 'success') {
+                    setTimeout(function() {
+                        location.reload();
+                    }, 2000);
+                }
+            },
+            error: function(xhr) {
+                $btn.prop('disabled', false).html(originalText);
+                let errorMessage = 'An error occurred. Please try again.';
+                if (xhr.responseJSON && xhr.responseJSON.message) {
+                    errorMessage = xhr.responseJSON.message;
+                } else if (xhr.responseText) {
+                    try {
+                        const response = JSON.parse(xhr.responseText);
+                        if (response.message) {
+                            errorMessage = response.message;
+                        }
+                    } catch (e) {
+                        // If response is not JSON, check for CSRF error
+                        if (xhr.status === 403 || xhr.responseText.includes('not allowed')) {
+                            errorMessage = 'CSRF token error. Please refresh the page and try again.';
+                        }
+                    }
+                }
+                $('#bulkUpdateAlert').html('<div class="alert alert-danger alert-dismissible fade show" role="alert">' +
+                    errorMessage +
+                    '<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>');
+            }
+        });
+    });
+
+    // Filter programs based on selected department in bulk update form
+    $('#bulk_department_id').on('change', function() {
+        const selectedDeptId = $(this).val();
+        const $programSelect = $('#bulk_program_id');
+        const $programOptions = $programSelect.find('option[data-department-id]');
+        
+        $programSelect.val('');
+        
+        if (!selectedDeptId) {
+            $programOptions.show();
+        } else {
+            $programOptions.hide();
+            $programOptions.each(function() {
+                const progDeptId = $(this).attr('data-department-id');
+                if (progDeptId == selectedDeptId) {
+                    $(this).show();
+                }
+            });
+        }
+    });
+
+    // ✅ USERS SEARCH FUNCTIONALITY
+    let usersSearchTimeout;
+    let isSearchingUsers = false;
+    const originalUsersHtml = $('#usersTableBody').html(); // Store original users
+    
+    function performUsersSearch(searchTerm) {
+        if (isSearchingUsers) return; // Prevent multiple simultaneous searches
+        
+        isSearchingUsers = true;
+        const $searchBtn = $('#searchUsersBtn');
+        const originalBtnText = $searchBtn.html();
+        
+        // Show loading indicator
+        $searchBtn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Searching...');
+
+        $.ajax({
+            url: "<?= base_url('admin/search/manage-users') ?>",
+            type: "GET",
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            data: {
+                q: searchTerm
+            },
+            dataType: 'json',
+            success: function(response) {
+                isSearchingUsers = false;
+                $searchBtn.prop('disabled', false).html(originalBtnText);
+
+                if (response.status === 'success') {
+                    // Update search info
+                    $('#usersResultCount').text(response.count);
+                    $('#searchUsersInfo').show();
+
+                    // Clear existing users
+                    $('#usersTableBody').empty();
+                    $('#noUsersSearchResults').hide();
+
+                    if (response.results.length > 0) {
+                        // Build table rows from search results
+                        response.results.forEach(function(user, index) {
+                            const role = (user.role || '').toLowerCase();
+                            const roleBadge = role === 'admin' ? 'bg-danger' : (role === 'teacher' ? 'bg-primary' : 'bg-success');
+                            const roleProtected = role === 'admin' ? '<span class="badge bg-danger ms-2">Protected</span>' : '';
+                            
+                            const status = (user.status || 'active').toLowerCase();
+                            let statusBadge = '';
+                            if (status === 'deleted') {
+                                statusBadge = '<span class="badge bg-danger">Deleted</span>';
+                            } else if (status === 'active') {
+                                statusBadge = '<span class="badge bg-success">Active</span>';
+                            } else {
+                                statusBadge = '<span class="badge bg-secondary">' + status.charAt(0).toUpperCase() + status.slice(1) + '</span>';
+                            }
+                            
+                            const deptHtml = user.department_name 
+                                ? '<span class="badge bg-info">' + (user.department_code || '') + ' - ' + user.department_name + '</span>'
+                                : '<span class="text-muted">-</span>';
+                            
+                            const progHtml = user.program_name 
+                                ? '<span class="badge bg-primary">' + (user.program_code || '') + ' - ' + user.program_name + '</span>'
+                                : '<span class="text-muted">-</span>';
+                            
+                            const studentIdHtml = user.student_id 
+                                ? '<span class="badge bg-secondary">' + user.student_id + '</span>'
+                                : '<span class="text-muted">-</span>';
+                            
+                            const currentUserId = <?= session()->get('user_id') ?? 0 ?>;
+                            const roleSelectHtml = (role !== 'admin' && status !== 'deleted' && user.id !== currentUserId) 
+                                ? '<select class="form-select form-select-sm role-select" data-user-id="' + user.id + '" data-current-role="' + role + '">' +
+                                  '<option value="teacher"' + (role === 'teacher' ? ' selected' : '') + '>Teacher</option>' +
+                                  '<option value="student"' + (role === 'student' ? ' selected' : '') + '>Student</option>' +
+                                  '</select>'
+                                : (role === 'admin' ? '<span class="badge bg-danger">Admin (Protected)</span>' : 
+                                   (status === 'deleted' ? '<span class="badge bg-secondary">Deleted</span>' : '<em class="text-muted">You</em>'));
+                            
+                            const baseUrl = '<?= base_url("admin/users/") ?>';
+                            const actionsHtml = (user.id !== currentUserId) 
+                                ? '<div class="btn-group" role="group">' +
+                                  '<button type="button" class="btn btn-sm btn-primary edit-user-btn" data-user-id="' + user.id + '" data-user-role="' + role + '" data-department-id="' + (user.department_id || '') + '" data-program-id="' + (user.program_id || '') + '" data-student-id="' + (user.student_id || '') + '" title="Edit User">Edit</button>' +
+                                  (status === 'deleted' 
+                                    ? '<a href="' + baseUrl + 'restore/' + user.id + '" class="btn btn-sm btn-success" onclick="return confirm(\'Are you sure you want to restore this user?\');" title="Restore User">Restore</a>'
+                                    : (role !== 'admin' 
+                                        ? '<a href="' + baseUrl + 'delete/' + user.id + '" class="btn btn-sm btn-danger" onclick="return confirm(\'Are you sure you want to remove this user?\');" title="Remove User">Delete</a>'
+                                        : '<span class="badge bg-danger">Protected</span>')) +
+                                  '</div>'
+                                : '<em class="text-muted">—</em>';
+                            
+                            const row = '<tr>' +
+                                '<td>' + (index + 1) + '</td>' +
+                                '<td>' + (user.name || 'N/A') + '</td>' +
+                                '<td>' + (user.email || 'N/A') + '</td>' +
+                                '<td><strong>' + role.charAt(0).toUpperCase() + role.slice(1) + '</strong>' + roleProtected + '</td>' +
+                                '<td>' + deptHtml + '</td>' +
+                                '<td>' + progHtml + '</td>' +
+                                '<td>' + studentIdHtml + '</td>' +
+                                '<td>' + statusBadge + '</td>' +
+                                '<td>' + roleSelectHtml + '</td>' +
+                                '<td>' + actionsHtml + '</td>' +
+                            '</tr>';
+                            $('#usersTableBody').append(row);
+                        });
+                    } else {
+                        $('#noUsersSearchResults').show();
+                    }
+                } else {
+                    $('#searchUsersInfo').hide();
+                    alert('Search failed: ' + (response.message || 'Unknown error'));
+                }
+            },
+            error: function(xhr, status, error) {
+                isSearchingUsers = false;
+                $searchBtn.prop('disabled', false).html(originalBtnText);
+                $('#searchUsersInfo').hide();
+                console.error('Search error:', error);
+                alert('An error occurred during search. Please try again.');
+            }
+        });
+    }
+
+    // Automatic search as user types (with debouncing)
+    $('#searchUsersInput').on('input', function() {
+        const searchTerm = $(this).val().trim();
+        
+        // Clear previous timeout
+        clearTimeout(usersSearchTimeout);
+        
+        if (searchTerm === '') {
+            // If search is empty, restore original users
+            clearTimeout(usersSearchTimeout);
+            usersSearchTimeout = setTimeout(function() {
+                $('#usersTableBody').html(originalUsersHtml);
+                $('#searchUsersInfo').hide();
+                $('#noUsersSearchResults').hide();
+            }, 300);
+        } else {
+            // Debounce: wait 500ms after user stops typing before searching
+            usersSearchTimeout = setTimeout(function() {
+                performUsersSearch(searchTerm);
+            }, 500);
+        }
+    });
+
+    // Submit form for users search
+    $('#searchUsersForm').on('submit', function(e) {
+        e.preventDefault();
+        
+        // Clear any pending timeout
+        clearTimeout(usersSearchTimeout);
+        
+        // Perform search immediately when form is submitted
+        const searchTerm = $('#searchUsersInput').val().trim();
+        if (searchTerm === '') {
+            $('#usersTableBody').html(originalUsersHtml);
+            $('#searchUsersInfo').hide();
+            $('#noUsersSearchResults').hide();
+        } else {
+            performUsersSearch(searchTerm);
+        }
+    });
 })();
 </script>
