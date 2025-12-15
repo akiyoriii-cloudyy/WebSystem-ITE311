@@ -34,6 +34,19 @@ class Materials extends BaseController
         ], $additionalData);
     }
 
+    /**
+     * Helper method to get the redirect URL for materials upload page
+     * Based on user role (admin or teacher)
+     */
+    private function getUploadRedirectUrl($course_id)
+    {
+        $session = session();
+        $userRole = strtolower($session->get('user_role') ?? '');
+        return $userRole === 'admin' 
+            ? site_url('admin/course/' . $course_id . '/upload')
+            : site_url('teacher/course/' . $course_id . '/upload');
+    }
+
     public function upload($course_id)
     {
         $session = session();
@@ -72,10 +85,7 @@ class Materials extends BaseController
                 $errs = $this->validator ? $this->validator->getErrors() : [];
                 $msg = !empty($errs) ? implode("\n", $errs) : 'Validation failed.';
                 log_message('error', 'Materials upload validation failed: {msg}', ['msg' => $msg]);
-                $materials = (new MaterialModel())->getMaterialsByCourse($course_id);
-                return view('materials/upload', $this->prepareUploadViewData($course_id, $materials, [
-                    'error' => $msg,
-                ]));
+                return redirect()->to($this->getUploadRedirectUrl($course_id))->with('error', $msg);
             }
 
             $file = $this->request->getFile('file');
@@ -93,43 +103,28 @@ class Materials extends BaseController
                     ->getRowArray();
                 
                 if ($existingMaterial) {
-                    $materials = (new MaterialModel())->getMaterialsByCourse($course_id);
-                    return view('materials/upload', $this->prepareUploadViewData($course_id, $materials, [
-                        'error' => 'Error file causing of duplicate',
-                    ]));
+                    return redirect()->to($this->getUploadRedirectUrl($course_id))->with('error', 'Error file causing of duplicate');
                 }
                 
                 $uploadBase = rtrim(WRITEPATH, '/\\') . DIRECTORY_SEPARATOR . 'uploads';
                 $uploadDir  = $uploadBase . DIRECTORY_SEPARATOR . 'materials';
                 if (!is_dir($uploadDir)) {
                     if (!@mkdir($uploadDir, 0777, true) && !is_dir($uploadDir)) {
-                        $materials = (new MaterialModel())->getMaterialsByCourse($course_id);
-                        return view('materials/upload', $this->prepareUploadViewData($course_id, $materials, [
-                            'error' => 'Cannot create upload directory.',
-                        ]));
+                        return redirect()->to($this->getUploadRedirectUrl($course_id))->with('error', 'Cannot create upload directory.');
                     }
                 }
                 if (!is_writable($uploadDir)) {
-                    $materials = (new MaterialModel())->getMaterialsByCourse($course_id);
-                    return view('materials/upload', $this->prepareUploadViewData($course_id, $materials, [
-                        'error' => 'Upload directory is not writable: ' . $uploadDir,
-                    ]));
+                    return redirect()->to($this->getUploadRedirectUrl($course_id))->with('error', 'Upload directory is not writable: ' . $uploadDir);
                 }
 
                 $newName = $file->getRandomName();
                 try {
                     if (!$file->move($uploadDir, $newName)) {
-                        $materials = (new MaterialModel())->getMaterialsByCourse($course_id);
-                        return view('materials/upload', $this->prepareUploadViewData($course_id, $materials, [
-                            'error' => 'Failed to move uploaded file.',
-                        ]));
+                        return redirect()->to($this->getUploadRedirectUrl($course_id))->with('error', 'Failed to move uploaded file.');
                     }
                 } catch (\Throwable $e) {
                     $err = method_exists($file, 'getErrorString') ? $file->getErrorString() : '';
-                    $materials = (new MaterialModel())->getMaterialsByCourse($course_id);
-                    return view('materials/upload', $this->prepareUploadViewData($course_id, $materials, [
-                        'error' => 'File move failed: ' . $e->getMessage() . ($err ? (' | ' . $err) : ''),
-                    ]));
+                    return redirect()->to($this->getUploadRedirectUrl($course_id))->with('error', 'File move failed: ' . $e->getMessage() . ($err ? (' | ' . $err) : ''));
                 }
 
                 $data = [
@@ -162,10 +157,7 @@ class Materials extends BaseController
                             $msg .= ' DB: ' . $dbErr['message'];
                         }
                         log_message('error', 'Materials insert failed: {msg}', ['msg' => $msg]);
-                        $materials = (new MaterialModel())->getMaterialsByCourse($course_id);
-                        return view('materials/upload', $this->prepareUploadViewData($course_id, $materials, [
-                            'error' => $msg,
-                        ]));
+                        return redirect()->to($this->getUploadRedirectUrl($course_id))->with('error', $msg);
                     }
                     
                     log_message('info', 'Material inserted successfully with ID: {id}', ['id' => $insertID]);
@@ -220,31 +212,20 @@ class Materials extends BaseController
                     }
                 } catch (\Throwable $e) {
                     log_message('error', 'Materials upload DB error: {err}', ['err' => $e->getMessage()]);
-                    $materials = (new MaterialModel())->getMaterialsByCourse($course_id);
-                    return view('materials/upload', $this->prepareUploadViewData($course_id, $materials, [
-                        'error' => 'Database error: ' . $e->getMessage(),
-                    ]));
+                    return redirect()->to($this->getUploadRedirectUrl($course_id))->with('error', 'Database error: ' . $e->getMessage());
                 }
                 log_message('info', 'Material upload completed successfully');
-                $materials = (new MaterialModel())->getMaterialsByCourse($course_id);
-                log_message('info', 'Retrieved {count} materials for course {id}', ['count' => count($materials), 'id' => $course_id]);
-                return view('materials/upload', $this->prepareUploadViewData($course_id, $materials, [
-                    'success' => 'Material uploaded successfully. Insert ID: ' . ($insertID ?? 'unknown'),
-                ]));
+                
+                // Redirect after successful upload to prevent CSRF token issues on refresh (POST-REDIRECT-GET pattern)
+                return redirect()->to($this->getUploadRedirectUrl($course_id))->with('success', 'Material uploaded successfully.');
             }
 
             $upErr = $file ? ($file->getErrorString() . ' (code ' . $file->getError() . ')') : 'No file instance available';
-            $materials = (new MaterialModel())->getMaterialsByCourse($course_id);
-            return view('materials/upload', $this->prepareUploadViewData($course_id, $materials, [
-                'error' => 'Invalid file upload: ' . $upErr,
-            ]));
+            return redirect()->to($this->getUploadRedirectUrl($course_id))->with('error', 'Invalid file upload: ' . $upErr);
             
             } catch (\Throwable $uploadEx) {
                 log_message('error', 'FATAL upload error: {err}', ['err' => $uploadEx->getMessage() . ' | ' . $uploadEx->getTraceAsString()]);
-                $materials = (new MaterialModel())->getMaterialsByCourse($course_id);
-                return view('materials/upload', $this->prepareUploadViewData($course_id, $materials, [
-                    'error' => 'FATAL ERROR: ' . $uploadEx->getMessage(),
-                ]));
+                return redirect()->to($this->getUploadRedirectUrl($course_id))->with('error', 'FATAL ERROR: ' . $uploadEx->getMessage());
             }
         }
 
